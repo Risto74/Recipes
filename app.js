@@ -648,11 +648,11 @@
       '<div class="actions"><a class="btn primary big" href="#/cook/' + esc(r.id) + '">' + IC.play + 'Cook</a>' +
       '<button class="btn outline big" data-act="addplan" data-id="' + esc(r.id) + '">Add to plan</button></div>' +
       '<div class="actions"><a class="btn" href="#/edit/' + esc(r.id) + '">Edit recipe</a>' +
-      '<button class="btn danger" data-act="del" data-id="' + esc(r.id) + '">' + (ui.confirmDel === r.id ? 'Tap again to delete' : 'Delete') + '</button></div></div>' +
+      '<button class="btn danger" data-act="del" data-id="' + esc(r.id) + '">' + (ui.confirmDel === r.id ? 'Tap again to delete' : 'Delete') + '</button></div>' + nutritionPanel(r) + '</div>' +
       '<div class="right"><section class="panel"><div class="row"><h2>Ingredients</h2><div class="stepper"><span class="meta" style="font-size:14px">Servings</span>' +
       '<button data-act="sv-" data-id="' + esc(r.id) + '" aria-label="Fewer servings">−</button><b>' + sv + '</b>' +
       '<button data-act="sv+" data-id="' + esc(r.id) + '" aria-label="More servings">+</button></div></div>' +
-      '<ul class="ings">' + ingItems(r, scale) + '</ul></section>' + nutritionPanel(r) +
+      '<ul class="ings">' + ingItems(r, scale) + '</ul></section>' + nutritionPanel(r, 'review') +
       '<section class="panel"><h2>Steps</h2><ol class="steps">' + r.steps.map(function (s) {
         if (s.h != null) { return '<li class="shead">' + esc(s.h) + '</li>'; }
         num++;
@@ -1497,28 +1497,28 @@
     return '<span class="nchip" title="Calculated from USDA data">' + IC.calc + (c.est || c.unconv.length ? '~' : '') + fmtN('sugars', c.per.sugars) + ' g sugar</span>';
   }
 
-  function nutritionPanel(r) {
+  function nutritionPanel(r, slot) {
     var n = ui.nutri;
-    var head = '<div class="row"><h2>' + IC.calc + ' Nutrition</h2>';
+    if (slot === 'review') { return (hasNutri(r) && n.review === r.id) ? reviewPanel(r, calcNutrition(r)) : ''; }
+    var head = '<div class="row"><h2>' + IC.calc + ' Nutrition' + (hasNutri(r) ? ' <small>per serving</small>' : '') + '</h2>';
     if (!hasNutri(r)) {
-      return '<section class="panel">' + head + '</div><p class="note">Get calories, sugars and more from the USDA food database.</p>' +
+      return '<section class="panel nutri">' + head + '</div><p class="note">Get calories, sugars and more from the USDA food database.</p>' +
         (n.msg && n.id === r.id ? '<p class="note warn">' + esc(n.msg) + '</p>' : '') +
         '<div class="row"><button class="btn primary" data-act="nutri-go" data-id="' + esc(r.id) + '"' + (n.busy ? ' disabled' : '') + '>' + (n.busy && n.id === r.id ? 'Matching ingredients...' : 'Calculate nutrition') + '</button></div></section>';
     }
     var c = calcNutrition(r);
-    if (n.review === r.id) { return reviewPanel(r, c); }
     var cells = NKEYS.map(function (k) {
       return '<div class="ncell"><b>' + fmtN(k, c.per[k]) + '</b><span>' + NLABEL[k] + (NUNIT[k] ? ' (' + NUNIT[k].trim() + ')' : '') + '</span></div>';
     }).join('');
     var notes = [];
-    notes.push('Per serving, based on ' + c.used + ' of ' + c.total + ' ingredients.');
+    notes.push('Based on ' + c.used + ' of ' + c.total + ' ingredients.');
     if (c.est) { notes.push(c.est + ' amount' + (c.est > 1 ? 's are' : ' is') + ' estimated.'); }
     if (c.unconv.length) { notes.push('Not counted: ' + c.unconv.slice(0, 4).join(', ') + (c.unconv.length > 4 ? ' and ' + (c.unconv.length - 4) + ' more' : '') + '.'); }
     var gaps = NKEYS.filter(function (k) { return c.miss[k]; }).map(function (k) { return NLABEL[k].toLowerCase(); });
     if (gaps.length) { notes.push('Some foods have no USDA value for ' + gaps.join(', ') + ', so those may be higher.'); }
     if (c.calcKcal) { notes.push('Some calories are calculated from protein, carbs and fat.'); }
     var pending = r.ingredients.filter(function (i) { return i.h == null && i.q != null && !r.nm[nkey(i.n)]; }).length;
-    return '<section class="panel">' + head + '</div><div class="ngrid">' + cells + '</div><p class="note">' + esc(notes.join(' ')) + '</p>' +
+    return '<section class="panel nutri">' + head + '</div><div class="ngrid">' + cells + '</div><p class="note">' + esc(notes.join(' ')) + '</p>' +
       (n.msg && n.id === r.id ? '<p class="note warn">' + esc(n.msg) + '</p>' : '') +
       '<div class="row"><button class="btn outline" data-act="nutri-review" data-id="' + esc(r.id) + '">Review ingredients</button>' +
       (pending > 0 ? '<button class="btn primary" data-act="nutri-go" data-id="' + esc(r.id) + '">' + (n.busy ? 'Matching...' : 'Match ' + pending + ' new') + '</button>' : '') +
