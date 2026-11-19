@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ingredient match test</title>
+<style>
+body{font:16px system-ui,sans-serif;margin:24px;max-width:980px;color:#111827;background:#F0F3F5}
+textarea{font:inherit;width:min(420px,100%);height:150px;padding:12px;border-radius:12px;border:1px solid #CBD5DD}
+button{font:inherit;padding:12px 18px;border-radius:12px;border:0;background:#3B5F6B;color:#fff}
+table{border-collapse:collapse;width:100%;background:#fff;margin-top:12px}
+td,th{border:1px solid #D8E0E5;padding:6px 8px;text-align:left;font-size:14px;vertical-align:top}
+.flag{background:#FFF4D6}
+small{color:#4B5563}
+</style></head><body>
+<h2>Ingredient match test</h2>
+<p id="who">Checking sign-in...</p>
+<p>One ingredient per line, names only (no amounts).</p>
+<textarea id="t">all-purpose flour
+large eggs
+olive oil
+chicken breast
+garlic cloves
+brown sugar
+whole milk
+cheddar cheese
+fresh basil
+soy sauce</textarea>
+<p><button id="go">Match</button></p>
+<div id="out"></div>
+<script src="vendor/supabase.js"></script>
+<script>
+(function () {
+  var sb = window.supabase.createClient('https://bkvikqntpisfnkdlules.supabase.co', 'sb_publishable_d4KL76DV7rAfWQmUgIWzOA_G1THfOAl');
+  var out = document.getElementById('out');
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  sb.auth.getSession().then(function (r) {
+    document.getElementById('who').textContent = r.data.session ? 'Signed in as ' + r.data.session.user.email : 'Not signed in. Open the Recipes app, sign in under Settings, then reload.';
+  });
+  document.getElementById('go').onclick = function () {
+    var names = document.getElementById('t').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+    out.innerHTML = '<p>Matching ' + names.length + ' ingredients...</p>';
+    var t0 = Date.now();
+    sb.functions.invoke('smooth-responder', { body: { names: names } }).then(function (r) {
+      if (r.error) { out.innerHTML = '<pre>Error: ' + esc(r.error.message || r.error) + '</pre>'; return; }
+      var rows = r.data.results.map(function (m) {
+        var c = m.chosen;
+        if (!c) { return '<tr class="flag"><td>' + esc(m.name) + '</td><td colspan="4">No match found</td></tr>'; }
+        var p = c.per100g;
+        var kcal = p.kcal == null ? '' : p.kcal + (p.kcalCalculated ? ' (calculated)' : '');
+        var por = c.portions.length ? c.portions.map(function (x) { return esc(x.amount + ' x ' + x.label + ' = ' + x.grams + ' g'); }).join('<br>') : '<small>none listed</small>';
+        var alts = m.alts.map(function (a) { return esc(a.name) + ' <small>(' + esc(a.type) + ')</small>'; }).join('<br>');
+        return '<tr' + (m.flagged ? ' class="flag"' : '') + '><td>' + esc(m.name) + (m.flagged ? '<br><small>CHECK THIS MATCH</small>' : '') + '</td><td>' + esc(c.name) + '<br><small>' + esc(c.type) + '</small></td><td>kcal ' + esc(kcal) + '<br>sugars ' + esc(p.sugars == null ? '' : p.sugars) + '<br>carbs ' + esc(p.carbs == null ? '' : p.carbs) + '</td><td>' + por + '</td><td><small>' + alts + '</small></td></tr>';
+      }).join('');
+      out.innerHTML = '<p>Done in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s. Values per 100 g. Yellow rows are matches the app would ask you to check.</p><table><tr><th>You typed</th><th>USDA food</th><th>Per 100 g</th><th>Household measures</th><th>Other choices</th></tr>' + rows + '</table>';
+    });
+  };
+})();
+</script></body></html>
