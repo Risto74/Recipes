@@ -494,6 +494,7 @@
 
   var IC = {
     book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg>',
+    rules: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.500 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>',
     cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
     imp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg>',
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
@@ -518,7 +519,7 @@
   function shell(active, inner) {
     var hub = window.HubApp ? '<span class="grow"></span><a class="navitem" href="' + HUB_URL + '">' + IC.hub + 'Hub</a>' : '';
     return '<div class="shell"><nav class="nav" aria-label="Main">' +
-      navItem('library', 'Recipes', IC.book, active) + navItem('plan', 'Plan', IC.cal, active) + navItem('import', 'Import', IC.imp, active) + navItem('settings', 'Settings', IC.gear, active) +
+      navItem('library', 'Recipes', IC.book, active) + navItem('plan', 'Plan', IC.cal, active) + navItem('import', 'Import', IC.imp, active) + navItem('profile', 'Rules', IC.rules, active) + navItem('settings', 'Settings', IC.gear, active) +
       hub + '</nav><main class="main">' + inner + '</main></div>' + modalHtml();
   }
 
@@ -539,7 +540,7 @@
       return '<a class="card" href="#/recipe/' + esc(r.id) + '"><div class="photo" aria-hidden="true" style="background:' + ph(r.id) + '">' +
         esc(r.title.charAt(0).toUpperCase()) + '</div><div class="body">' +
         (kind ? '<div class="kind">' + esc(kind) + '</div>' : '') +
-        '<div class="t">' + esc(r.title) + '</div><div class="meta">' + esc(metaText(r)) + '</div>' + sugarChip(r) + '</div></a>';
+        '<div class="t">' + esc(r.title) + '</div><div class="meta">' + esc(metaText(r)) + '</div>' + sugarChip(r) + flagChip(r) + '</div></a>';
     }).join('');
   }
 
@@ -648,7 +649,7 @@
       '<div class="actions"><a class="btn primary big" href="#/cook/' + esc(r.id) + '">' + IC.play + 'Cook</a>' +
       '<button class="btn outline big" data-act="addplan" data-id="' + esc(r.id) + '">Add to plan</button></div>' +
       '<div class="actions"><a class="btn" href="#/edit/' + esc(r.id) + '">Edit recipe</a>' +
-      '<button class="btn danger" data-act="del" data-id="' + esc(r.id) + '">' + (ui.confirmDel === r.id ? 'Tap again to delete' : 'Delete') + '</button></div>' + nutritionPanel(r) + '</div>' +
+      '<button class="btn danger" data-act="del" data-id="' + esc(r.id) + '">' + (ui.confirmDel === r.id ? 'Tap again to delete' : 'Delete') + '</button></div>' + nutritionPanel(r) + flagsPanel(r) + '</div>' +
       '<div class="right"><section class="panel"><div class="row"><h2>Ingredients</h2><div class="stepper"><span class="meta" style="font-size:14px">Servings</span>' +
       '<button data-act="sv-" data-id="' + esc(r.id) + '" aria-label="Fewer servings">−</button><b>' + sv + '</b>' +
       '<button data-act="sv+" data-id="' + esc(r.id) + '" aria-label="More servings">+</button></div></div>' +
@@ -963,6 +964,7 @@
     if (nr.name === 'cook' && r) { return cookView(r); }
     if (nr.name === 'edit' && r) { return editView(r); }
     if (nr.name === 'settings') { return settingsView(); }
+    if (nr.name === 'profile') { return profileView(); }
     if (nr.name === 'plan') { return planView(); }
     if (nr.name === 'import') { return importView(); }
     return libraryView();
@@ -1200,6 +1202,20 @@
     var t = ev.target;
     var fk = t.getAttribute && t.getAttribute('data-filter');
     if (fk) { ui[fk] = t.value; rerender(); return; }
+    var lk = t.getAttribute && t.getAttribute('data-lim');
+    if (lk) {
+      var lv = t.value.trim();
+      var num = lv === '' ? null : parseFloat(lv);
+      pf().limits[lk] = (num == null || isNaN(num) || num < 0) ? null : num;
+      save(); rerender(); return;
+    }
+    var ak = t.getAttribute && t.getAttribute('data-av');
+    if (ak != null) {
+      var av = t.value.trim();
+      var list = pf().avoid;
+      if (av) { list[+ak] = av; } else { list.splice(+ak, 1); }
+      save(); rerender(); return;
+    }
     var ck = t.getAttribute && t.getAttribute('data-cfg');
     if (ck) {
       var oldV = t.getAttribute('data-old');
@@ -1214,6 +1230,10 @@
     if (ev.key === 'Enter' && t.id && t.id.indexOf('add-') === 0) {
       var b = t.parentNode.querySelector('[data-act="cfg-add"]');
       if (b) { b.click(); }
+    }
+    if (ev.key === 'Enter' && t.id === 'avadd') {
+      var ab = t.parentNode.querySelector('[data-act="av-add"]');
+      if (ab) { ab.click(); }
     }
     if (ev.key === 'Enter' && t.id === 'nsearch') {
       var sb2 = t.parentNode.querySelector('[data-act="nutri-search"]');
@@ -1232,6 +1252,15 @@
       ui.modal = null; rerender(); return;
     }
     if (act === 'clear-filters') { ui.fCat = 'All'; ui.fCuisine = 'All'; ui.fTag = 'All'; rerender(); return; }
+    if (act === 'av-add') {
+      var ai = document.getElementById('avadd');
+      var aw = ai ? ai.value.trim() : '';
+      var al = pf().avoid;
+      if (aw && al.map(function (x) { return x.toLowerCase(); }).indexOf(aw.toLowerCase()) < 0) { al.push(aw); save(); }
+      rerender(); return;
+    }
+    if (act === 'av-del') { pf().avoid.splice(+el.getAttribute('data-n'), 1); save(); rerender(); return; }
+    if (act === 'prof-ok') { pf().confirmed = true; save(); rerender(); return; }
     if (act === 'cfg-add') {
       var kind = el.getAttribute('data-kind');
       var inp = document.getElementById('add-' + kind);
@@ -1654,6 +1683,96 @@
         if (m.food && m.food.fdcId === alt.fdcId) { m.food.portions = (res.data.portions || []).slice(0, 14); save(); rerender(); }
       });
     }
+  }
+
+  /* ---------- health rules (profile) ---------- */
+
+  var LIMITS = [
+    { k: 'netcarbs', label: 'Net carbs', unit: 'g', dir: 'max', hint: 'carbs minus fiber' },
+    { k: 'sugars', label: 'Total sugars', unit: 'g', dir: 'max', hint: '' },
+    { k: 'kcal', label: 'Calories', unit: '', dir: 'max', hint: '' },
+    { k: 'sodium', label: 'Sodium', unit: 'mg', dir: 'max', hint: '' },
+    { k: 'protein', label: 'Protein', unit: 'g', dir: 'min', hint: '' }
+  ];
+  var DEF_AVOID = ['deep fry', 'deep fried', 'deep frying', 'battered', 'breaded', 'raw broccoli', 'raw cauliflower', 'raw cabbage', 'raw kale', 'coleslaw'];
+
+  function profile() {
+    var p = db.config.profile;
+    if (p && p.limits && p.avoid) { return p; }
+    return { limits: { netcarbs: 20, sugars: null, kcal: null, sodium: null, protein: null }, avoid: DEF_AVOID.slice(), confirmed: false };
+  }
+  function pf() {
+    if (!db.config.profile || !db.config.profile.limits) { db.config.profile = profile(); }
+    return db.config.profile;
+  }
+
+  function plain(t) { return ' ' + String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() + ' '; }
+
+  function flagsOf(r) {
+    var p = profile();
+    var out = [];
+    var c = hasNutri(r) ? calcNutrition(r) : null;
+    if (c && c.used) {
+      var inc = (c.est || c.unconv.length) ? ' (includes estimates)' : '';
+      LIMITS.forEach(function (L) {
+        var lim = p.limits[L.k];
+        if (lim == null || isNaN(lim)) { return; }
+        var v = L.k === 'netcarbs' ? Math.max(0, (c.per.carbs || 0) - (c.per.fiber || 0)) : c.per[L.k];
+        if (v == null) { return; }
+        var shown = Math.round(v * 10) / 10;
+        if (L.dir === 'max' && v > lim) { out.push(L.label + ' is ' + shown + (L.unit ? ' ' + L.unit : '') + ' per serving, over your limit of ' + lim + inc + '.'); }
+        if (L.dir === 'min' && v < lim && !c.miss[L.k]) { out.push(L.label + ' is ' + shown + (L.unit ? ' ' + L.unit : '') + ' per serving, under your minimum of ' + lim + inc + '.'); }
+      });
+    }
+    var ingText = r.ingredients.filter(function (i) { return i.h == null; }).map(function (i) { return plain(i.n); });
+    (p.avoid || []).forEach(function (w) {
+      var key = plain(w);
+      if (key.trim() === '') { return; }
+      if (ingText.some(function (t) { return t.indexOf(key) >= 0; })) { out.push('An ingredient matches your avoid list: "' + w + '".'); return; }
+      var n = 0;
+      for (var i = 0; i < r.steps.length; i++) {
+        var st = r.steps[i];
+        if (st.h != null) { continue; }
+        n++;
+        if (plain(st.t).indexOf(key) >= 0) { out.push('Step ' + n + ' matches your avoid list: "' + w + '".'); return; }
+      }
+    });
+    return out;
+  }
+
+  function flagChip(r) {
+    var f = flagsOf(r);
+    return f.length ? '<span class="nchip warnchip" title="' + esc(f.join(' ')) + '">' + f.length + (f.length === 1 ? ' flag' : ' flags') + '</span>' : '';
+  }
+
+  function flagsPanel(r) {
+    var p = profile();
+    var any = (p.avoid && p.avoid.length) || LIMITS.some(function (L) { return p.limits[L.k] != null; });
+    if (!any) { return ''; }
+    var f = flagsOf(r);
+    return '<section class="panel nutri"><div class="row"><h2>Flags</h2><a class="btn" href="#/profile">Edit rules</a></div>' +
+      (f.length ? '<ul class="flags">' + f.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' :
+        '<p class="note">Nothing here goes against your rules.' + (hasNutri(r) ? '' : ' Nutrition limits are not checked until you calculate nutrition.') + '</p>') +
+      '<p class="note">A guide based on your own rules, not medical advice.</p></section>';
+  }
+
+  function profileView() {
+    var p = profile();
+    var lim = LIMITS.map(function (L) {
+      var v = p.limits[L.k];
+      return '<div class="crow"><label class="limlbl" for="lim-' + L.k + '">' + L.label + (L.unit ? ' (' + L.unit + ')' : '') + '<small>' + (L.dir === 'max' ? 'flag when over' : 'flag when under') + (L.hint ? ', ' + L.hint : '') + '</small></label>' +
+        '<input class="inp lim" id="lim-' + L.k + '" type="number" inputmode="decimal" min="0" step="any" placeholder="No limit" data-lim="' + L.k + '" value="' + (v == null ? '' : esc(String(v))) + '"></div>';
+    }).join('');
+    var av = (p.avoid || []).map(function (w, i) {
+      return '<div class="crow"><input class="inp" aria-label="Avoid word" data-av="' + i + '" value="' + esc(w) + '">' +
+        '<button class="btn" data-act="av-del" data-n="' + i + '">Remove</button></div>';
+    }).join('');
+    return shell('profile', '<div class="top"><h1>Health rules</h1></div><div class="cfgwrap">' +
+      (p.confirmed ? '' : '<div class="notice">These start with rules you told me earlier. Check each one and change what is wrong. <button class="btn" data-act="prof-ok">I checked them</button></div>') +
+      '<section class="panel"><h2>Per-serving limits</h2><p class="note">Recipes get a flag when their calculated nutrition per serving goes past a limit. Leave a box empty for no limit. Needs nutrition calculated on the recipe. Flags are a guide, not medical advice.</p>' + lim + '</section>' +
+      '<section class="panel"><h2>Avoid list</h2><p class="note">Words or short phrases to watch for. A recipe gets a flag when its ingredients or steps contain one, for example "deep fry" or "raw broccoli". It is a plain text match, so it can miss other wording.</p>' +
+      (av || '<p class="note">None yet.</p>') +
+      '<div class="crow"><input class="inp" id="avadd" placeholder="Add a word or phrase" aria-label="Add to avoid list"><button class="btn primary" data-act="av-add">Add</button></div></section></div>');
   }
 
   /* ---------- cloud sync (Supabase) ---------- */
