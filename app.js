@@ -469,7 +469,7 @@
 
   var ui = {
     fCat: 'All', fCuisine: 'All', fTag: 'All', q: '', servings: {}, weekOffset: 0, step: 0, tpick: {}, timer: null, tick: null,
-    nutri: { busy: false, id: null, msg: '', review: null, pick: null, q: '', smsg: '', sbusy: false }, draft: null, editId: null, importTab: 'text', importText: '', modal: null, confirmDel: null, confirmCfg: null, reorder: false, focusRow: null, lastPtr: ''
+    nutri: { busy: false, id: null, msg: '', review: null, pick: null, q: '', smsg: '', sbusy: false }, draft: null, editId: null, importTab: 'text', importText: '', linkUrl: '', linkMsg: '', linkBusy: false, modal: null, confirmDel: null, confirmCfg: null, reorder: false, focusRow: null, lastPtr: ''
   };
   var wakeLock = null;
 
@@ -516,6 +516,16 @@
     return '<a class="navitem' + (active === name ? ' on' : '') + '" href="#/' + (name === 'library' ? '' : name) + '">' + icon + label + '</a>';
   }
 
+  function sourceLine(r) {
+    if (!r.src || !/^https?:\/\//i.test(r.src)) { return ''; }
+    var host = r.src.replace(/^https?:\/\/(www\.)?/i, '').split('/')[0];
+    return '<p class="meta" style="margin-top:4px;font-size:13px">Source: <a href="' + esc(r.src) + '" target="_blank" rel="noopener noreferrer">' + esc(host) + '</a></p>';
+  }
+
+  function imgTag(r) {
+    return r && r.img ? '<img class="pimg" src="' + esc(r.img) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">' : '';
+  }
+
   function shell(active, inner) {
     var hub = window.HubApp ? '<span class="grow"></span><a class="navitem" href="' + HUB_URL + '">' + IC.hub + 'Hub</a>' : '';
     return '<div class="shell"><nav class="nav" aria-label="Main">' +
@@ -538,7 +548,7 @@
     return list.map(function (r) {
       var kind = kindText(r);
       return '<a class="card" href="#/recipe/' + esc(r.id) + '"><div class="photo" aria-hidden="true" style="background:' + ph(r.id) + '">' +
-        esc(r.title.charAt(0).toUpperCase()) + '</div><div class="body">' +
+        esc(r.title.charAt(0).toUpperCase()) + imgTag(r) + '</div><div class="body">' +
         (kind ? '<div class="kind">' + esc(kind) + '</div>' : '') +
         '<div class="t">' + esc(r.title) + '</div><div class="meta">' + esc(metaText(r)) + '</div>' + sugarChip(r) + flagChip(r) + '</div></a>';
     }).join('');
@@ -643,8 +653,8 @@
       (r.tags || []).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
     return shell('library',
       '<div class="detail"><div class="left"><a class="back" href="#/">' + IC.back + 'All recipes</a>' +
-      '<div class="hero" aria-hidden="true" style="background:' + ph(r.id) + '">' + esc(r.title.charAt(0).toUpperCase()) + '</div>' +
-      '<div><h1 class="hero-t">' + esc(r.title) + '</h1><p class="meta" style="margin-top:8px;font-size:14px">' + esc(metaText(r)) + '</p></div>' +
+      '<div class="hero" aria-hidden="true" style="background:' + ph(r.id) + '">' + esc(r.title.charAt(0).toUpperCase()) + imgTag(r) + '</div>' +
+      '<div><h1 class="hero-t">' + esc(r.title) + '</h1><p class="meta" style="margin-top:8px;font-size:14px">' + esc(metaText(r)) + '</p>' + sourceLine(r) + '</div>' +
       (chips ? '<div class="tags">' + chips + '</div>' : '') +
       '<div class="actions"><a class="btn primary big" href="#/cook/' + esc(r.id) + '">' + IC.play + 'Cook</a>' +
       '<button class="btn outline big" data-act="addplan" data-id="' + esc(r.id) + '">Add to plan</button></div>' +
@@ -742,7 +752,10 @@
       '<button class="' + (ui.importTab === 'link' ? 'on' : '') + '" data-act="itab" data-v="link">Web link</button></div>';
     var body;
     if (ui.importTab === 'link') {
-      body = '<div class="panel"><h2>Web link</h2><p class="note">Importing from a web link needs the server part of the app, which comes in the next step. For now, open the recipe page, copy the text, and use Paste text.</p></div>';
+      body = ui.draft ? draftHtml('import') : '<div class="panel"><h2>Web link</h2><p class="note">Paste the address of a recipe page. The app reads the recipe data the page includes, then shows it on the next screen for you to check. Nothing is saved until you save. Some sites block this or have no recipe data. Then copy the page text and use Paste text.</p>' +
+        '<label for="linkurl" class="lab">Recipe link</label><input id="linkurl" class="inp" type="url" inputmode="url" placeholder="https://" value="' + esc(ui.linkUrl) + '" data-field="linkUrl">' +
+        (ui.linkMsg ? '<p class="note warn">' + esc(ui.linkMsg) + '</p>' : '') +
+        '<button class="btn primary big" data-act="i-link"' + (ui.linkBusy ? ' disabled' : '') + '>' + (ui.linkBusy ? 'Reading the page...' : 'Read this link') + '</button></div>';
     } else if (!ui.draft) {
       body = '<div class="panel"><h2>Paste a recipe</h2><p class="note">Paste from Google Keep or a web page. Nothing is saved until you check it on the next screen.</p>' +
         '<label for="paste" class="lab">Recipe text</label><textarea id="paste" class="paste" data-field="importText">' + esc(ui.importText) + '</textarea>' +
@@ -764,7 +777,7 @@
     if (mode === 'edit' && !d.original) {
       left = '<section class="panel"><h2>Tips</h2><p class="note">Use the headings to split ingredients and steps into groups, like "For the sauce". Start a step line with # to make it a heading. Times in a step, like "bake 25 minutes", become timers in cooking mode.</p></section>';
     } else {
-      left = '<section class="panel"><h2>What you pasted</h2><p class="note">Kept with the recipe.</p>' +
+      left = '<section class="panel"><h2>' + (d.src ? 'What was read from the link' : 'What you pasted') + '</h2><p class="note">Kept with the recipe.</p>' +
         '<div class="orig">' + esc(d.original) + '</div>' +
         (mode === 'import' ? '<button class="btn" data-act="i-back">Back to the text</button>' : '') + '</section>';
     }
@@ -1010,6 +1023,27 @@
     };
   }
 
+  function startLinkDraft(rec, source) {
+    ui.reorder = false;
+    ui.focusRow = null;
+    var ing = (rec.ingredients || []).map(function (l) {
+      var pl = parseIngredientLine(l);
+      return pl.n ? rowFromIng(pl) : { qty: '', name: l, missing: true };
+    });
+    var img = String(rec.image || '').replace(/^http:\/\//i, 'https://');
+    if (!/^https:\/\//i.test(img)) { img = ''; }
+    var orig = 'Imported from ' + source + '\n\n' + (rec.title || '') + '\n\nIngredients\n' + (rec.ingredients || []).join('\n') + '\n\nInstructions\n' + (rec.steps || []).join('\n');
+    var cats = (ui.draft && ui.draft.cat) || [];
+    var known = [];
+    (rec.category || []).concat(rec.cuisine ? [] : []).forEach(function (c) {
+      db.config.cats.forEach(function (k) { if (k.toLowerCase() === String(c).toLowerCase() && known.indexOf(k) < 0) { known.push(k); } });
+    });
+    ui.draft = {
+      original: orig, title: rec.title || '', servings: rec.servings || 4, cook: rec.minutes || '', cat: known.length ? known : cats, cuisine: rec.cuisine || '', tags: '',
+      ingr: ing, steps: (rec.steps || []).join('\n'), src: source, img: img
+    };
+  }
+
   function draftFrom(r) {
     return {
       original: r.original || '', title: r.title, servings: r.servings, cook: (r.prep || 0) + (r.cook || 0) || '',
@@ -1055,6 +1089,8 @@
     } else {
       fields.id = 'r' + Date.now();
       fields.original = d.original;
+      if (d.src) { fields.src = d.src; }
+      if (d.img) { fields.img = d.img; }
       db.recipes.unshift(fields);
       id = fields.id;
     }
@@ -1361,13 +1397,32 @@
     if (act === 't-add') { timerAdd(); return; }
     if (act === 't-reset') { resetTimer(); paintTimer(); return; }
     if (act === 't-pick') { ui.tpick[ui.step] = +el.getAttribute('data-v'); resetTimer(); rerender(); return; }
-    if (act === 'itab') { ui.importTab = el.getAttribute('data-v'); rerender(); return; }
+    if (act === 'itab') { ui.importTab = el.getAttribute('data-v'); if (!ui.editId) { ui.draft = null; } rerender(); return; }
     if (act === 'i-read') {
       var ta = document.getElementById('paste');
       var text = ta ? ta.value : ui.importText;
       ui.importText = text;
       if (!text.trim()) { return; }
       startDraft(text); rerender(); return;
+    }
+    if (act === 'i-link') {
+      var lu = document.getElementById('linkurl');
+      var url = (lu ? lu.value : ui.linkUrl).trim();
+      ui.linkUrl = url;
+      if (!url) { ui.linkMsg = 'Paste a recipe link first.'; rerender(); return; }
+      if (!/^https?:\/\//i.test(url)) { url = 'https://' + url; ui.linkUrl = url; }
+      if (!sb || !cloud.user) { ui.linkMsg = 'Sign in under Settings to import from a link.'; rerender(); return; }
+      if (ui.linkBusy) { return; }
+      ui.linkBusy = true; ui.linkMsg = ''; rerender();
+      sb.functions.invoke(NUTRI_FN, { body: { url: url } }).then(function (res) {
+        ui.linkBusy = false;
+        if (res.error || !res.data || !res.data.recipe) {
+          return fnError(res.error).then(function (msg) { ui.linkMsg = msg; rerender(); });
+        }
+        startLinkDraft(res.data.recipe, res.data.source || url);
+        rerender();
+      });
+      return;
     }
     if (act === 'i-back') { ui.draft = null; ui.reorder = false; rerender(); return; }
     if (act === 'i-cancel') { if (!ui.editId) { ui.draft = null; } return; }
@@ -1412,6 +1467,7 @@
     }
     var f = t.getAttribute && t.getAttribute('data-field');
     if (f === 'importText') { ui.importText = t.value; return; }
+    if (f === 'linkUrl') { ui.linkUrl = t.value; return; }
     if (f && ui.draft) { ui.draft[f] = t.value; return; }
     var n = t.getAttribute && t.getAttribute('data-ing');
     if (n != null && ui.draft) {
