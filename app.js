@@ -469,7 +469,7 @@
 
   var ui = {
     fCat: 'All', fCuisine: 'All', fTag: 'All', q: '', servings: {}, weekOffset: 0, step: 0, tpick: {}, timer: null, tick: null,
-    draft: null, editId: null, importTab: 'text', importText: '', modal: null, confirmDel: null, confirmCfg: null, reorder: false, focusRow: null, lastPtr: ''
+    nutri: { busy: false, id: null, msg: '', review: null, pick: null }, draft: null, editId: null, importTab: 'text', importText: '', modal: null, confirmDel: null, confirmCfg: null, reorder: false, focusRow: null, lastPtr: ''
   };
   var wakeLock = null;
 
@@ -505,6 +505,7 @@
     prev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18"><path d="M15 5l-7 7 7 7"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" width="18" height="18"><path d="M12 5v14M5 12h14"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" width="18" height="18"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    calc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg>',
     play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" width="20" height="20"><path d="M8 5v14l11-7z"/></svg>'
   };
 
@@ -538,7 +539,7 @@
       return '<a class="card" href="#/recipe/' + esc(r.id) + '"><div class="photo" aria-hidden="true" style="background:' + ph(r.id) + '">' +
         esc(r.title.charAt(0).toUpperCase()) + '</div><div class="body">' +
         (kind ? '<div class="kind">' + esc(kind) + '</div>' : '') +
-        '<div class="t">' + esc(r.title) + '</div><div class="meta">' + esc(metaText(r)) + '</div></div></a>';
+        '<div class="t">' + esc(r.title) + '</div><div class="meta">' + esc(metaText(r)) + '</div>' + sugarChip(r) + '</div></a>';
     }).join('');
   }
 
@@ -651,7 +652,7 @@
       '<div class="right"><section class="panel"><div class="row"><h2>Ingredients</h2><div class="stepper"><span class="meta" style="font-size:14px">Servings</span>' +
       '<button data-act="sv-" data-id="' + esc(r.id) + '" aria-label="Fewer servings">−</button><b>' + sv + '</b>' +
       '<button data-act="sv+" data-id="' + esc(r.id) + '" aria-label="More servings">+</button></div></div>' +
-      '<ul class="ings">' + ingItems(r, scale) + '</ul></section>' +
+      '<ul class="ings">' + ingItems(r, scale) + '</ul></section>' + nutritionPanel(r) +
       '<section class="panel"><h2>Steps</h2><ol class="steps">' + r.steps.map(function (s) {
         if (s.h != null) { return '<li class="shead">' + esc(s.h) + '</li>'; }
         num++;
@@ -1247,6 +1248,27 @@
       if (ui.confirmCfg === dk + '|' + dv) { cfgRemove(dk, dv); ui.confirmCfg = null; } else { ui.confirmCfg = dk + '|' + dv; }
       rerender(); return;
     }
+    if (act === 'nutri-go' || act === 'nutri-redo') {
+      var nr0 = byId(id);
+      if (nr0 && !ui.nutri.busy) { nutriMatch(nr0, act === 'nutri-redo'); }
+      return;
+    }
+    if (act === 'nutri-review') { ui.nutri.review = id; ui.nutri.pick = null; ui.nutri.msg = ''; rerender(); return; }
+    if (act === 'nutri-close') { ui.nutri.review = null; ui.nutri.pick = null; rerender(); return; }
+    if (act === 'nutri-change') {
+      var ck = el.getAttribute('data-k');
+      ui.nutri.pick = ui.nutri.pick === ck ? null : ck;
+      rerender(); return;
+    }
+    if (act === 'nutri-pick' || act === 'nutri-skip' || act === 'nutri-ok') {
+      var rr = byId(cur.id);
+      var kk = el.getAttribute('data-k');
+      if (!rr || !rr.nm || !rr.nm[kk]) { return; }
+      if (act === 'nutri-pick') { nutriPick(rr, kk, parseInt(el.getAttribute('data-i'), 10)); ui.nutri.pick = null; return; }
+      if (act === 'nutri-skip') { rr.nm[kk].skip = !rr.nm[kk].skip; ui.nutri.pick = null; }
+      if (act === 'nutri-ok') { rr.nm[kk].ok = true; }
+      save(); rerender(); return;
+    }
     if (act === 'sign-in') {
       if (!sb) { return; }
       if (IN_HUB) { hubSignIn(); return; }
@@ -1365,6 +1387,236 @@
       }
     }
   });
+
+  /* ---------- nutrition (USDA through the Supabase function) ---------- */
+
+  var NUTRI_FN = 'smooth-responder';
+  var NKEYS = ['kcal', 'sugars', 'carbs', 'protein', 'fat', 'fiber', 'sodium'];
+  var NLABEL = { kcal: 'Calories', sugars: 'Total sugars', carbs: 'Carbs', protein: 'Protein', fat: 'Fat', fiber: 'Fiber', sodium: 'Sodium' };
+  var NUNIT = { kcal: '', sugars: ' g', carbs: ' g', protein: ' g', fat: ' g', fiber: ' g', sodium: ' mg' };
+  var MASS = { g: 1, gram: 1, grams: 1, kg: 1000, oz: 28.3495, ounce: 28.3495, ounces: 28.3495, lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592 };
+  var VOL = { tsp: 4.92892, teaspoon: 4.92892, teaspoons: 4.92892, tbsp: 14.7868, tablespoon: 14.7868, tablespoons: 14.7868, cup: 236.588, cups: 236.588,
+    c: 236.588, ml: 1, l: 1000, liter: 1000, liters: 1000, pint: 473.176, pints: 473.176, quart: 946.353, quarts: 946.353 };
+  var SIZES = ['extra large', 'jumbo', 'large', 'medium', 'small'];
+
+  function nkey(n) { return String(n || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function stemw(w) { w = w.toLowerCase(); return (w.length > 3 && w.slice(-1) === 's' && w.slice(-2) !== 'ss') ? w.slice(0, -1) : w; }
+  function words(s) { return String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(/[^a-z]+/).filter(Boolean).map(stemw); }
+
+  function volMl(label) {
+    var m = String(label).toLowerCase().match(/\b(tsp|teaspoon|tbsp|tablespoon|cup|fl oz)\b/);
+    if (!m) { return 0; }
+    var k = m[1];
+    return (k === 'tsp' || k === 'teaspoon') ? 4.92892 : (k === 'tbsp' || k === 'tablespoon') ? 14.7868 : k === 'cup' ? 236.588 : 29.5735;
+  }
+
+  // Turns one ingredient line (amount + unit) into grams. conf: exact (weight), usda (USDA measure), estimate (assumed), none (cannot convert).
+  function convert(ing, m) {
+    if (ing.q == null) { return { g: 0, conf: 'none', why: 'no amount' }; }
+    if (!m || m.skip || !m.food) { return { g: 0, conf: 'none', why: m && m.skip ? 'skipped' : 'no match' }; }
+    var q = ing.q;
+    var u = String(ing.u || '').toLowerCase().replace(/\.$/, '');
+    var ports = m.food.portions || [];
+    if (MASS[u]) { return { g: q * MASS[u], conf: 'exact', how: 'by weight' }; }
+    var name = words(ing.n);
+    if (VOL[u]) {
+      var best = null;
+      var bs = -1;
+      ports.forEach(function (p, i) {
+        var ml = volMl(p.label);
+        if (!ml) { return; }
+        var lw = words(p.label);
+        var hit = 0;
+        name.forEach(function (w) { if (lw.indexOf(w) >= 0) { hit++; } });
+        var sc = hit * 2 - i * 0.01;
+        if (sc > bs) { bs = sc; best = { p: p, ml: ml }; }
+      });
+      if (best) { return { g: q * VOL[u] * best.p.grams / (best.p.amount * best.ml), conf: 'usda', how: 'USDA: ' + best.p.amount + ' x ' + best.p.label + ' = ' + best.p.grams + ' g' }; }
+      return { g: q * VOL[u], conf: 'estimate', how: 'assumed 1 g per ml' };
+    }
+    var cnt = ports.filter(function (p) {
+      return !volMl(p.label) && !/\b(oz|ounce|g|gram)\b/i.test(String(p.label).replace(/\([^)]*\)/g, ''));
+    });
+    var pick = null;
+    var uw = u ? stemw(u) : '';
+    if (uw) { cnt.forEach(function (p) { if (!pick && words(p.label).indexOf(uw) >= 0) { pick = p; } }); }
+    if (!pick) {
+      var low = String(ing.n).toLowerCase();
+      SIZES.forEach(function (sz) { if (!pick && low.indexOf(sz) >= 0) { cnt.forEach(function (p) { if (!pick && String(p.label).toLowerCase().indexOf(sz) >= 0) { pick = p; } }); } });
+    }
+    if (!pick) { cnt.forEach(function (p) { if (!pick && words(p.label).some(function (w) { return name.indexOf(w) >= 0; })) { pick = p; } }); }
+    if (!pick) { cnt.forEach(function (p) { if (!pick && /\b(medium|large)\b/i.test(p.label)) { pick = p; } }); }
+    // A whole item with no unit ("1 lemon") and exactly one count measure from USDA: use it.
+    if (!pick && !u && cnt.length === 1) { pick = cnt[0]; }
+    if (pick) { return { g: q * pick.grams / pick.amount, conf: 'usda', how: 'USDA: ' + pick.amount + ' x ' + pick.label + ' = ' + pick.grams + ' g' }; }
+    if (u === 'pinch') { return { g: q * 0.36, conf: 'estimate', how: 'assumed 0.36 g per pinch' }; }
+    if (u === 'dash') { return { g: q * 0.6, conf: 'estimate', how: 'assumed 0.6 g per dash' }; }
+    return { g: 0, conf: 'none', why: 'no weight for "' + (u || 'whole item') + '"' };
+  }
+
+  function calcNutrition(r) {
+    var nm = r.nm || {};
+    var tot = {};
+    var miss = {};
+    NKEYS.forEach(function (k) { tot[k] = 0; miss[k] = false; });
+    var out = { used: 0, est: 0, total: 0, unconv: [], items: [], calcKcal: false, matched: 0 };
+    r.ingredients.forEach(function (ing, idx) {
+      if (ing.h != null) { return; }
+      out.total++;
+      var m = nm[nkey(ing.n)];
+      if (m && m.food) { out.matched++; }
+      var res = convert(ing, m);
+      out.items.push({ idx: idx, ing: ing, key: nkey(ing.n), m: m, res: res });
+      if (!res.g) { out.unconv.push(ing.n); return; }
+      out.used++;
+      if (res.conf === 'estimate') { out.est++; }
+      if (m.food.per100g.kcalCalculated) { out.calcKcal = true; }
+      NKEYS.forEach(function (k) {
+        var v = m.food.per100g[k];
+        if (v == null) { miss[k] = true; } else { tot[k] += v * res.g / 100; }
+      });
+    });
+    var sv = r.servings || 1;
+    out.per = {};
+    NKEYS.forEach(function (k) { out.per[k] = tot[k] / sv; });
+    out.miss = miss;
+    return out;
+  }
+
+  function fmtN(k, v) {
+    if (k === 'kcal' || k === 'sodium' || v >= 10) { return String(Math.round(v)); }
+    return String(Math.round(v * 10) / 10);
+  }
+
+  function hasNutri(r) { return !!(r.nm && Object.keys(r.nm).length); }
+
+  function sugarChip(r) {
+    if (!hasNutri(r)) { return ''; }
+    var c = calcNutrition(r);
+    if (!c.used) { return ''; }
+    return '<span class="nchip" title="Calculated from USDA data">' + IC.calc + (c.est || c.unconv.length ? '~' : '') + fmtN('sugars', c.per.sugars) + ' g sugar</span>';
+  }
+
+  function nutritionPanel(r) {
+    var n = ui.nutri;
+    var head = '<div class="row"><h2>' + IC.calc + ' Nutrition</h2>';
+    if (!hasNutri(r)) {
+      return '<section class="panel">' + head + '</div><p class="note">Get calories, sugars and more from the USDA food database.</p>' +
+        (n.msg && n.id === r.id ? '<p class="note warn">' + esc(n.msg) + '</p>' : '') +
+        '<div class="row"><button class="btn primary" data-act="nutri-go" data-id="' + esc(r.id) + '"' + (n.busy ? ' disabled' : '') + '>' + (n.busy && n.id === r.id ? 'Matching ingredients...' : 'Calculate nutrition') + '</button></div></section>';
+    }
+    var c = calcNutrition(r);
+    if (n.review === r.id) { return reviewPanel(r, c); }
+    var cells = NKEYS.map(function (k) {
+      return '<div class="ncell"><b>' + fmtN(k, c.per[k]) + '</b><span>' + NLABEL[k] + (NUNIT[k] ? ' (' + NUNIT[k].trim() + ')' : '') + '</span></div>';
+    }).join('');
+    var notes = [];
+    notes.push('Per serving, based on ' + c.used + ' of ' + c.total + ' ingredients.');
+    if (c.est) { notes.push(c.est + ' amount' + (c.est > 1 ? 's are' : ' is') + ' estimated.'); }
+    if (c.unconv.length) { notes.push('Not counted: ' + c.unconv.slice(0, 4).join(', ') + (c.unconv.length > 4 ? ' and ' + (c.unconv.length - 4) + ' more' : '') + '.'); }
+    var gaps = NKEYS.filter(function (k) { return c.miss[k]; }).map(function (k) { return NLABEL[k].toLowerCase(); });
+    if (gaps.length) { notes.push('Some foods have no USDA value for ' + gaps.join(', ') + ', so those may be higher.'); }
+    if (c.calcKcal) { notes.push('Some calories are calculated from protein, carbs and fat.'); }
+    var pending = r.ingredients.filter(function (i) { return i.h == null && i.q != null && !r.nm[nkey(i.n)]; }).length;
+    return '<section class="panel">' + head + '</div><div class="ngrid">' + cells + '</div><p class="note">' + esc(notes.join(' ')) + '</p>' +
+      (n.msg && n.id === r.id ? '<p class="note warn">' + esc(n.msg) + '</p>' : '') +
+      '<div class="row"><button class="btn outline" data-act="nutri-review" data-id="' + esc(r.id) + '">Review ingredients</button>' +
+      (pending > 0 ? '<button class="btn primary" data-act="nutri-go" data-id="' + esc(r.id) + '">' + (n.busy ? 'Matching...' : 'Match ' + pending + ' new') + '</button>' : '') +
+      '<button class="btn" data-act="nutri-redo" data-id="' + esc(r.id) + '"' + (n.busy ? ' disabled' : '') + '>Start over</button></div></section>';
+  }
+
+  var CONFTXT = { exact: 'weighed', usda: 'USDA measure', estimate: 'estimate', none: 'not counted' };
+
+  function reviewPanel(r, c) {
+    var n = ui.nutri;
+    var rows = c.items.map(function (it) {
+      var m = it.m;
+      var f = m && m.food;
+      var open = n.pick === it.key;
+      var flag = m && m.flagged && !m.ok && !m.skip;
+      var line = '<div class="nrow' + (flag ? ' flag' : '') + '"><div class="nl"><b>' + esc(amount(it.ing, 1)) + ' ' + esc(it.ing.n) + '</b>' +
+        '<span class="nm">' + (m && m.skip ? 'Skipped (not counted)' : f ? esc(f.name) + ' <small>(' + esc(f.type) + ')</small>' : (it.ing.q == null ? 'No amount given' : 'No USDA match')) + '</span>' +
+        '<span class="nb nb-' + it.res.conf + '">' + CONFTXT[it.res.conf] + (it.res.g ? ': ' + Math.round(it.res.g) + ' g' : '') + (it.res.conf === 'none' && it.res.why ? ' (' + esc(it.res.why) + ')' : '') + '</span>' +
+        (it.res.how && it.res.conf !== 'exact' ? '<small class="how">' + esc(it.res.how) + '</small>' : '') + '</div>' +
+        '<div class="nr">' + (flag && f ? '<button class="btn" data-act="nutri-ok" data-k="' + esc(it.key) + '">Looks right</button>' : '') +
+        '<button class="btn" data-act="nutri-change" data-k="' + esc(it.key) + '">' + (open ? 'Close' : 'Change') + '</button></div></div>';
+      if (open && m) {
+        line += '<div class="npick">' + (m.alts || []).map(function (a, i) {
+          return '<button class="btn" data-act="nutri-pick" data-k="' + esc(it.key) + '" data-i="' + i + '">' + esc(a.name) + ' <small>(' + esc(a.type) + ')</small></button>';
+        }).join('') + '<button class="btn danger" data-act="nutri-skip" data-k="' + esc(it.key) + '">' + (m.skip ? 'Include again' : 'Skip this ingredient') + '</button></div>';
+      }
+      return line;
+    }).join('');
+    return '<section class="panel"><div class="row"><h2>' + IC.calc + ' Review ingredients</h2><button class="btn" data-act="nutri-close">Done</button></div>' +
+      '<p class="note">Yellow rows are matches to check. "Estimate" means the amount had no USDA weight, so a guess was used.</p>' +
+      (n.msg && n.id === r.id ? '<p class="note warn">' + esc(n.msg) + '</p>' : '') + rows + '</section>';
+  }
+
+  function compactFood(f, withPortions) {
+    var o = { fdcId: f.fdcId, name: f.name, type: f.type, per100g: f.per100g };
+    if (withPortions) { o.portions = (f.portions || []).slice(0, 14); }
+    return o;
+  }
+
+  function fnError(e) {
+    if (e && e.context && typeof e.context.json === 'function') {
+      return e.context.json().then(function (j) { return (j && j.error) || e.message; }).catch(function () { return e.message; });
+    }
+    return Promise.resolve((e && e.message) || 'could not reach the nutrition service');
+  }
+
+  function nutriMatch(r, redo) {
+    var n = ui.nutri;
+    if (!sb || !cloud.user) { n.id = r.id; n.msg = 'Sign in under Settings first. Nutrition looks foods up through your account.'; rerender(); return; }
+    if (redo) { r.nm = {}; }
+    if (!r.nm) { r.nm = {}; }
+    var names = [];
+    var seen = {};
+    r.ingredients.forEach(function (ing) {
+      if (ing.h != null) { return; }
+      var k = nkey(ing.n);
+      if (!k || ing.q == null || seen[k] || r.nm[k]) { return; }
+      seen[k] = true;
+      names.push(ing.n);
+    });
+    if (!names.length) { n.id = r.id; n.msg = 'Everything is already matched.'; rerender(); return; }
+    n.busy = true; n.id = r.id; n.msg = '';
+    rerender();
+    sb.functions.invoke(NUTRI_FN, { body: { names: names } }).then(function (res) {
+      n.busy = false;
+      if (res.error) { return fnError(res.error).then(function (t) { n.msg = 'Nutrition lookup failed: ' + t; rerender(); }); }
+      (res.data.results || []).forEach(function (m) {
+        r.nm[nkey(m.name)] = {
+          food: m.chosen ? compactFood(m.chosen, true) : null,
+          alts: (m.alts || []).map(function (a) { return compactFood(a, false); }),
+          flagged: !!m.flagged, ok: false, skip: false
+        };
+      });
+      save();
+      var flaggedCount = names.filter(function (x) { var e = r.nm[nkey(x)]; return e && e.flagged; }).length;
+      n.msg = flaggedCount ? flaggedCount + ' match' + (flaggedCount > 1 ? 'es are' : ' is') + ' worth a look. Tap Review ingredients.' : '';
+      rerender();
+    });
+  }
+
+  function nutriPick(r, key, i) {
+    var m = r.nm && r.nm[key];
+    if (!m || !m.alts || !m.alts[i]) { return; }
+    var alt = m.alts[i];
+    var old = m.food;
+    m.food = compactFood(alt, true);
+    m.food.portions = [];
+    m.alts[i] = old ? compactFood(old, false) : alt;
+    m.ok = true; m.skip = false; m.flagged = false;
+    ui.nutri.id = r.id; ui.nutri.msg = '';
+    save(); rerender();
+    if (sb && cloud.user) {
+      sb.functions.invoke(NUTRI_FN, { body: { fdcId: alt.fdcId } }).then(function (res) {
+        if (res.error || !res.data) { return; }
+        if (m.food && m.food.fdcId === alt.fdcId) { m.food.portions = (res.data.portions || []).slice(0, 14); save(); rerender(); }
+      });
+    }
+  }
 
   /* ---------- cloud sync (Supabase) ---------- */
 
