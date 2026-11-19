@@ -285,3 +285,18 @@ textarea.stepsbox{width:100%;min-height:150px;border:1px solid var(--line2);bord
 .npick .btn{justify-content:flex-start;text-align:left;min-height:44px;height:auto;padding:8px 14px;font-size:14px}
 .btn[disabled]{opacity:.55}
 @media (max-width:640px){.nrow{flex-direction:column}.nr{justify-content:flex-start}}
+
+/* nutrition: compact side card */
+.panel.nutri{padding:14px 16px;margin-top:4px}
+.panel.nutri h2{font-size:16px}
+.panel.nutri h2 small{font-size:12px;font-weight:500;color:var(--ink3);margin-left:4px}
+.panel.nutri .ngrid{grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.panel.nutri .ncell{padding:6px 8px;border-radius:8px}
+.panel.nutri .ncell b{font-size:15px}
+.panel.nutri .ncell span{font-size:11px;line-height:1.2}
+.panel.nutri .ncell:first-child{grid-column:1/-1;flex-direction:row;justify-content:space-between;align-items:baseline}
+.panel.nutri .ncell:first-child b{font-size:18px;order:2}
+.panel.nutri .note{font-size:12px;margin:8px 0 0}
+.panel.nutri .row{gap:6px;flex-wrap:wrap}
+.panel.nutri .row:last-child{margin-top:10px}
+.panel.nutri .btn{min-height:36px;padding:0 12px;font-size:13px}
