@@ -120,8 +120,13 @@
     s.ver = DBVER;
   }
 
-  function save() {
+  function persist() {
     try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* ignore */ }
+  }
+
+  function save() {
+    persist();
+    cloudChanged();
   }
 
   function byId(id) {
@@ -512,7 +517,7 @@
   function shell(active, inner) {
     var hub = window.HubApp ? '<span class="grow"></span><a class="navitem" href="' + HUB_URL + '">' + IC.hub + 'Hub</a>' : '';
     return '<div class="shell"><nav class="nav" aria-label="Main">' +
-      navItem('library', 'Recipes', IC.book, active) + navItem('plan', 'Plan', IC.cal, active) + navItem('import', 'Import', IC.imp, active) + navItem('settings', 'Lists', IC.gear, active) +
+      navItem('library', 'Recipes', IC.book, active) + navItem('plan', 'Plan', IC.cal, active) + navItem('import', 'Import', IC.imp, active) + navItem('settings', 'Settings', IC.gear, active) +
       hub + '</nav><main class="main">' + inner + '</main></div>' + modalHtml();
   }
 
@@ -613,8 +618,8 @@
   }
 
   function settingsView() {
-    return shell('settings', '<div class="top"><h1>Edit lists</h1></div>' +
-      '<div class="cfgwrap">' +
+    return shell('settings', '<div class="top"><h1>Settings</h1></div>' +
+      '<div class="cfgwrap">' + accountPanel() +
       listPanel('Types', 'cats', 'The choices shown when you tag a recipe, like Breakfast or Dessert. Rename a type by editing it. Use the arrows to change the order.') +
       listPanel('Cuisines', 'cuisines', 'The cuisine suggestions. A new cuisine you type on a recipe is added here for you.') +
       listPanel('Tags', 'tags', 'Free tags come from your recipes. You can rename or remove them here. Add new ones while editing a recipe.') + '</div>');
@@ -945,7 +950,9 @@
   var cur = { name: 'library', id: null };
 
   function route() {
-    var p = location.hash.replace(/^#\/?/, '').split('/');
+    var h = location.hash;
+    if (/access_token=|error_description=|[?&]code=/.test(h)) { h = '#/'; }
+    var p = h.replace(/^#\/?/, '').split('/');
     return { name: p[0] || 'library', id: p[1] || null };
   }
 
@@ -1240,6 +1247,19 @@
       if (ui.confirmCfg === dk + '|' + dv) { cfgRemove(dk, dv); ui.confirmCfg = null; } else { ui.confirmCfg = dk + '|' + dv; }
       rerender(); return;
     }
+    if (act === 'sign-in') {
+      if (!sb) { return; }
+      sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } }).then(function (r) {
+        if (r && r.error) { setCloudMsg(r.error.message, false); }
+      });
+      return;
+    }
+    if (act === 'sign-out') {
+      if (!sb) { return; }
+      sb.auth.signOut({ scope: 'local' }).then(function () { cloud.user = null; cloud.msg = ''; rerender(); });
+      return;
+    }
+    if (act === 'sync-now') { syncAll(true).then(function () { rerender(); }); rerender(); return; }
     if (act === 'rm-samples') {
       db.recipes = db.recipes.filter(function (r) { return !r.sample; });
       Object.keys(db.plan).forEach(function (k) { if (!byId(db.plan[k])) { delete db.plan[k]; } });
@@ -1345,6 +1365,208 @@
     }
   });
 
+  /* ---------- cloud sync (Supabase) ---------- */
+
+  var SB_URL = 'https://bkvikqntpisfnkdlules.supabase.co';
+  var SB_KEY = 'sb_publishable_d4KL76DV7rAfWQmUgIWzOA_G1THfOAl';
+  var SYNC_KEY = 'recipeapp.sync';
+  var sb = null;
+  var cloud = { user: null, busy: false, again: false, msg: '', ok: false, at: 0, timer: null };
+  var syncState = loadSync();
+
+  function loadSync() {
+    var s = null;
+    try { s = JSON.parse(localStorage.getItem(SYNC_KEY)); } catch (e) { s = null; }
+    if (!s || !s.rec) { s = { uid: null, rec: {}, st: '' }; }
+    return s;
+  }
+  function saveSync() {
+    try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncState)); } catch (e) { /* ignore */ }
+  }
+  function stateJson() { return JSON.stringify({ config: db.config, plan: db.plan }); }
+  function realRecipes() { return db.recipes.filter(function (r) { return !r.sample; }); }
+
+  function setCloudMsg(msg, ok) {
+    cloud.msg = msg; cloud.ok = !!ok;
+    if (ok) { cloud.at = Date.now(); }
+    var el = document.getElementById('syncstat');
+    if (el) { el.textContent = syncText(); }
+  }
+
+  function syncText() {
+    if (!sb) { return 'Cloud sync is not available. The app still works on this device only.'; }
+    if (!cloud.user) { return 'Not signed in.'; }
+    if (cloud.busy) { return 'Syncing...'; }
+    if (cloud.msg && !cloud.ok) { return 'Not synced: ' + cloud.msg; }
+    return cloud.at ? 'Synced at ' + new Date(cloud.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.' : 'Signed in.';
+  }
+
+  function cloudChanged() {
+    if (!cloud.user || !sb) { return; }
+    clearTimeout(cloud.timer);
+    cloud.timer = setTimeout(function () { syncAll(false); }, 1500);
+  }
+
+  function failMsg(e) {
+    var m = e && e.message ? String(e.message) : 'unknown error';
+    return /fetch|network|failed/i.test(m) ? 'no connection. Changes are kept on this device and will upload later.' : m;
+  }
+
+  // Upload local changes: changed or new recipes, removed recipes, and lists/plan.
+  function pushLocal() {
+    var uid = cloud.user.id;
+    var up = [], seen = {}, del = [];
+    realRecipes().forEach(function (r) {
+      seen[r.id] = true;
+      if (syncState.rec[r.id] !== JSON.stringify(r)) { up.push(r); }
+    });
+    Object.keys(syncState.rec).forEach(function (id) { if (!seen[id]) { del.push(id); } });
+    var st = stateJson();
+    var jobs = [];
+    if (up.length) {
+      jobs.push(sb.from('recipes').upsert(up.map(function (r) { return { owner: uid, id: r.id, data: r, updated_at: new Date().toISOString() }; }), { onConflict: 'owner,id' })
+        .then(function (res) {
+          if (res.error) { throw res.error; }
+          up.forEach(function (r) { syncState.rec[r.id] = JSON.stringify(r); });
+        }));
+    }
+    if (del.length) {
+      jobs.push(sb.from('recipes').delete().in('id', del).then(function (res) {
+        if (res.error) { throw res.error; }
+        del.forEach(function (id) { delete syncState.rec[id]; });
+      }));
+    }
+    if (st !== syncState.st) {
+      jobs.push(sb.from('app_state').upsert({ owner: uid, config: db.config, plan: db.plan, updated_at: new Date().toISOString() }, { onConflict: 'owner' })
+        .then(function (res) {
+          if (res.error) { throw res.error; }
+          syncState.st = st;
+        }));
+    }
+    return Promise.all(jobs).then(function () { saveSync(); });
+  }
+
+  function idNum(id) { var n = parseInt(String(id).replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
+
+  // Download the cloud copy. firstTime: merge with what is on this device. Otherwise the cloud copy replaces synced recipes.
+  function pullCloud(firstTime) {
+    return Promise.all([
+      sb.from('recipes').select('id,data'),
+      sb.from('app_state').select('config,plan').maybeSingle()
+    ]).then(function (res) {
+      if (res[0].error) { throw res[0].error; }
+      if (res[1].error) { throw res[1].error; }
+      var rows = res[0].data || [];
+      var local = {};
+      db.recipes.forEach(function (r) { local[r.id] = r; });
+      var inCloud = {};
+      var fresh = [];
+      rows.forEach(function (row) {
+        inCloud[row.id] = true;
+        if (local[row.id]) {
+          // Same recipe on both sides: keep this device's copy only if it has changes not yet uploaded.
+          var pending = !firstTime && syncState.rec[row.id] !== JSON.stringify(local[row.id]);
+          if (!pending) { var i = db.recipes.indexOf(local[row.id]); db.recipes[i] = row.data; }
+        } else { fresh.push(row.data); }
+      });
+      if (!firstTime) {
+        db.recipes = db.recipes.filter(function (r) { return r.sample || inCloud[r.id] || syncState.rec[r.id] === undefined; });
+      }
+      fresh.sort(function (a, b) { return idNum(b.id) - idNum(a.id); });
+      db.recipes = fresh.concat(db.recipes);
+      var s = res[1].data;
+      if (s && s.config && s.config.cats) {
+        db.config = s.config;
+        db.plan = s.plan || {};
+      }
+      db.recipes.forEach(fixTags);
+      var rec = {};
+      realRecipes().forEach(function (r) { if (inCloud[r.id]) { rec[r.id] = JSON.stringify(r); } });
+      // Keep entries for recipes not uploaded yet as unsynced (absent from rec).
+      syncState.rec = rec;
+      syncState.st = (s && s.config && s.config.cats) ? stateJson() : syncState.st;
+      persist();
+      saveSync();
+    });
+  }
+
+  function syncAll(full) {
+    if (!sb || !cloud.user) { return Promise.resolve(); }
+    if (cloud.busy) { cloud.again = true; return Promise.resolve(); }
+    cloud.busy = true;
+    setCloudMsg('', false);
+    var uid = cloud.user.id;
+    var first = syncState.uid !== uid;
+    if (first && syncState.uid) {
+      // A different account used this device before: drop its copy so recipes don't mix.
+      db.recipes = db.recipes.filter(function (r) { return r.sample; });
+      db.plan = {};
+      db.config = { cats: CATS.slice(), cuisines: CUISINES.slice() };
+      syncState.rec = {}; syncState.st = '';
+    }
+    var p;
+    if (first) {
+      syncState.uid = uid;
+      p = pullCloud(true).then(function () { return pushLocal(); });
+    } else if (full) {
+      p = pushLocal().then(function () { return pullCloud(false); });
+    } else {
+      p = pushLocal();
+    }
+    return p.then(function () {
+      cloud.busy = false;
+      setCloudMsg('', true);
+      if (first || full) { softRerender(); }
+    }).catch(function (e) {
+      cloud.busy = false;
+      setCloudMsg(failMsg(e), false);
+    }).then(function () {
+      if (cloud.again) { cloud.again = false; cloudChanged(); }
+    });
+  }
+
+  // Redraw after a download, but never while someone is typing in a form or cooking.
+  function softRerender() {
+    if (ui.draft || cur.name === 'cook' || cur.name === 'edit' || cur.name === 'import') { return; }
+    if (cur.name === 'recipe' && !byId(cur.id)) { location.hash = '#/'; return; }
+    rerender();
+  }
+
+  function cleanAuthUrl() {
+    var h = location.hash || '';
+    if (/access_token=|error_description=|refresh_token=/.test(h)) {
+      try { history.replaceState(null, '', location.pathname + location.search + '#/'); } catch (e) { /* ignore */ }
+      render();
+    }
+  }
+
+  function initCloud() {
+    if (!window.supabase || !window.supabase.createClient) { return; }
+    try { sb = window.supabase.createClient(SB_URL, SB_KEY); } catch (e) { sb = null; return; }
+    sb.auth.onAuthStateChange(function (ev, session) {
+      var was = cloud.user ? cloud.user.id : null;
+      cloud.user = session ? session.user : null;
+      var now = cloud.user ? cloud.user.id : null;
+      if (now && now !== was) { setTimeout(function () { syncAll(true).then(function () { if (cur.name === 'settings') { rerender(); } }); }, 0); }
+      else if (!now && was) { setTimeout(function () { if (cur.name === 'settings') { rerender(); } }, 0); }
+    });
+    sb.auth.getSession().then(function () { cleanAuthUrl(); if (cur.name === 'settings') { rerender(); } });
+  }
+
+  function accountPanel() {
+    var body;
+    if (!sb) {
+      body = '<p class="note" id="syncstat">' + esc(syncText()) + '</p>';
+    } else if (!cloud.user) {
+      body = '<p class="note">Sign in to keep your recipes, lists and meal plan the same on every device. Recipes already on this device are uploaded the first time.</p>' +
+        '<div class="row"><button class="btn primary" data-act="sign-in">Sign in with Google</button></div><p class="note" id="syncstat"></p>';
+    } else {
+      body = '<p class="note">Signed in as <strong>' + esc(cloud.user.email || '') + '</strong></p><p class="note" id="syncstat">' + esc(syncText()) + '</p>' +
+        '<div class="row"><button class="btn outline" data-act="sync-now">Sync now</button><button class="btn" data-act="sign-out">Sign out</button></div>';
+    }
+    return '<section class="panel"><h2>Account and sync</h2>' + body + '</section>';
+  }
+
   // The Family Hub app calls this when the Home button is pressed.
   window.hubHome = function () { location.href = HUB_URL; };
 
@@ -1359,4 +1581,7 @@
   };
 
   render();
+  initCloud();
+  window.addEventListener('online', function () { syncAll(true); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && cloud.user) { syncAll(true); } });
 })();
