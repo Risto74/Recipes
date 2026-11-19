@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nutrition lookup test</title>
+<style>
+body{font:16px system-ui,sans-serif;margin:24px;max-width:760px;color:#111827;background:#F0F3F5}
+input{font:inherit;padding:12px;border-radius:12px;border:1px solid #CBD5DD;width:min(360px,70%)}
+button{font:inherit;padding:12px 18px;border-radius:12px;border:0;background:#3B5F6B;color:#fff}
+table{border-collapse:collapse;width:100%;background:#fff;margin-top:12px}
+td,th{border:1px solid #D8E0E5;padding:6px 8px;text-align:left;font-size:14px}
+pre{background:#fff;border:1px solid #D8E0E5;border-radius:12px;padding:12px;white-space:pre-wrap}
+</style></head><body>
+<h2>Nutrition lookup test</h2>
+<p id="who">Checking sign-in...</p>
+<p><input id="q" value="cheddar cheese"> <button id="go">Search</button></p>
+<div id="out"></div>
+<script src="vendor/supabase.js"></script>
+<script>
+(function () {
+  var sb = window.supabase.createClient('https://bkvikqntpisfnkdlules.supabase.co', 'sb_publishable_d4KL76DV7rAfWQmUgIWzOA_G1THfOAl');
+  var out = document.getElementById('out');
+  sb.auth.getSession().then(function (r) {
+    document.getElementById('who').textContent = r.data.session ? 'Signed in as ' + r.data.session.user.email : 'Not signed in. Open the Recipes app, sign in under Settings, then reload this page.';
+  });
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  document.getElementById('go').onclick = function () {
+    out.innerHTML = '<pre>Searching...</pre>';
+    sb.functions.invoke('smooth-responder', { body: { q: document.getElementById('q').value } }).then(function (r) {
+      if (r.error) {
+        var msg = r.error.message || String(r.error);
+        if (r.error.context && r.error.context.text) { return r.error.context.text().then(function (t) { out.innerHTML = '<pre>Error: ' + esc(msg) + '\n' + esc(t) + '</pre>'; }); }
+        out.innerHTML = '<pre>Error: ' + esc(msg) + '</pre>'; return;
+      }
+      var rows = (r.data.foods || []).map(function (f) {
+        var p = f.per100g;
+        return '<tr><td>' + esc(f.name) + '<br><small>' + esc(f.type) + '</small></td><td>' + esc(p.kcal) + '</td><td>' + esc(p.sugars) + '</td><td>' + esc(p.carbs) + '</td><td>' + esc(p.protein) + '</td><td>' + esc(p.fat) + '</td><td>' + esc(p.fiber) + '</td><td>' + esc(p.sodium) + '</td></tr>';
+      }).join('');
+      out.innerHTML = '<p>Values are per 100 g. A blank cell means USDA has no value.</p><table><tr><th>Food</th><th>kcal</th><th>Sugars g</th><th>Carbs g</th><th>Protein g</th><th>Fat g</th><th>Fiber g</th><th>Sodium mg</th></tr>' + (rows || '<tr><td colspan="8">No matches</td></tr>') + '</table>';
+    });
+  };
+})();
+</script></body></html>
