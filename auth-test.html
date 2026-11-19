@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign-in test</title>
+<style>
+body{font:16px system-ui,sans-serif;margin:24px;max-width:640px;color:#111827;background:#F0F3F5}
+button{font:inherit;padding:12px 18px;border-radius:12px;border:0;background:#3B5F6B;color:#fff;margin:6px 6px 6px 0}
+pre{background:#fff;border:1px solid #D8E0E5;border-radius:12px;padding:12px;white-space:pre-wrap;word-break:break-word}
+</style></head><body>
+<h2>Recipes: sign-in test</h2>
+<div id="btns"></div>
+<pre id="log">Loading...</pre>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function () {
+  var URL_ = 'https://bkvikqntpisfnkdlules.supabase.co';
+  var KEY = 'sb_publishable_d4KL76DV7rAfWQmUgIWzOA_G1THfOAl';
+  var logEl = document.getElementById('log');
+  function log(m) { logEl.textContent += '\n' + m; }
+  logEl.textContent = 'UA: ' + navigator.userAgent;
+  if (!window.supabase) { log('FAIL: supabase library did not load'); return; }
+  var sb = window.supabase.createClient(URL_, KEY);
+  var btns = document.getElementById('btns');
+  function btn(label, fn) {
+    var b = document.createElement('button'); b.textContent = label; b.onclick = fn; btns.appendChild(b);
+  }
+  btn('Sign in with Google', function () {
+    sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } })
+      .then(function (r) { if (r.error) log('Sign-in error: ' + r.error.message); });
+  });
+  btn('Test save + read', function () {
+    sb.auth.getUser().then(function (u) {
+      if (!u.data.user) { log('Not signed in'); return; }
+      var id = 'test-' + Date.now();
+      return sb.from('recipes').insert({ id: id, data: { title: 'Test' } }).then(function (w) {
+        if (w.error) { log('Write FAIL: ' + w.error.message); return; }
+        return sb.from('recipes').select('id,data').eq('id', id).then(function (r) {
+          log('Read: ' + JSON.stringify(r.data) + (r.error ? ' ERR ' + r.error.message : ''));
+          return sb.from('recipes').delete().eq('id', id).then(function () { log('Test row deleted. Database OK.'); });
+        });
+      });
+    });
+  });
+  btn('Sign out', function () { sb.auth.signOut().then(function () { log('Signed out'); }); });
+  sb.auth.getSession().then(function (r) {
+    log(r.data.session ? 'SIGNED IN as ' + r.data.session.user.email : 'Not signed in');
+  });
+})();
+</script></body></html>
