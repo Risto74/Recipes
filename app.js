@@ -1249,6 +1249,7 @@
     }
     if (act === 'sign-in') {
       if (!sb) { return; }
+      if (IN_HUB) { hubSignIn(); return; }
       sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } }).then(function (r) {
         if (r && r.error) { setCloudMsg(r.error.message, false); }
       });
@@ -1395,7 +1396,7 @@
 
   function syncText() {
     if (!sb) { return 'Cloud sync is not available. The app still works on this device only.'; }
-    if (!cloud.user) { return 'Not signed in.'; }
+    if (!cloud.user) { return cloud.msg && !cloud.ok ? 'Sign-in problem: ' + cloud.msg : ''; }
     if (cloud.busy) { return 'Syncing...'; }
     if (cloud.msg && !cloud.ok) { return 'Not synced: ' + cloud.msg; }
     return cloud.at ? 'Synced at ' + new Date(cloud.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.' : 'Signed in.';
@@ -1540,9 +1541,43 @@
     }
   }
 
+  // Inside the Family Hub app, Google sign-in opens in Chrome and returns through familyhub://spotify
+  // (the same return address the Hub already uses for Spotify). The Hub app stores the result for us to pick up.
+  var IN_HUB = !!(window.HubApp && window.HubApp.openUrl && window.HubApp.takeSpotifyCallback);
+  var PEND_KEY = 'recipeapp.authpending';
+  var HUB_RETURN = 'familyhub://spotify';
+
+  function hubSignIn() {
+    sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: HUB_RETURN, skipBrowserRedirect: true } }).then(function (r) {
+      if (r.error || !r.data || !r.data.url) { setCloudMsg(r.error ? r.error.message : 'could not start sign-in', false); return; }
+      try { localStorage.setItem(PEND_KEY, String(Date.now())); } catch (e) { /* ignore */ }
+      window.HubApp.openUrl(r.data.url);
+    });
+  }
+
+  function authPending() {
+    var t = 0;
+    try { t = parseInt(localStorage.getItem(PEND_KEY), 10) || 0; } catch (e) { t = 0; }
+    return t && Date.now() - t < 10 * 60 * 1000;
+  }
+
+  function hubCallback() {
+    if (!IN_HUB || !sb || !authPending()) { return; }
+    var o = null;
+    try { var raw = window.HubApp.takeSpotifyCallback(); if (!raw) { return; } o = JSON.parse(raw); } catch (e) { return; }
+    try { localStorage.removeItem(PEND_KEY); } catch (e2) { /* ignore */ }
+    if (o.error || !o.code) { setCloudMsg(o.error || 'sign-in did not finish. Try again.', false); if (cur.name === 'settings') { rerender(); } return; }
+    sb.auth.exchangeCodeForSession(o.code).then(function (r) {
+      if (r.error) { setCloudMsg(r.error.message, false); }
+      if (cur.name === 'settings') { rerender(); }
+    });
+  }
+
   function initCloud() {
     if (!window.supabase || !window.supabase.createClient) { return; }
-    try { sb = window.supabase.createClient(SB_URL, SB_KEY); } catch (e) { sb = null; return; }
+    try {
+      sb = IN_HUB ? window.supabase.createClient(SB_URL, SB_KEY, { auth: { flowType: 'pkce', detectSessionInUrl: false } }) : window.supabase.createClient(SB_URL, SB_KEY);
+    } catch (e) { sb = null; return; }
     sb.auth.onAuthStateChange(function (ev, session) {
       var was = cloud.user ? cloud.user.id : null;
       cloud.user = session ? session.user : null;
@@ -1550,7 +1585,8 @@
       if (now && now !== was) { setTimeout(function () { syncAll(true).then(function () { if (cur.name === 'settings') { rerender(); } }); }, 0); }
       else if (!now && was) { setTimeout(function () { if (cur.name === 'settings') { rerender(); } }, 0); }
     });
-    sb.auth.getSession().then(function () { cleanAuthUrl(); if (cur.name === 'settings') { rerender(); } });
+    if (IN_HUB) { window.onSpotifyCb = hubCallback; }
+    sb.auth.getSession().then(function () { cleanAuthUrl(); hubCallback(); if (cur.name === 'settings') { rerender(); } });
   }
 
   function accountPanel() {
@@ -1559,7 +1595,7 @@
       body = '<p class="note" id="syncstat">' + esc(syncText()) + '</p>';
     } else if (!cloud.user) {
       body = '<p class="note">Sign in to keep your recipes, lists and meal plan the same on every device. Recipes already on this device are uploaded the first time.</p>' +
-        '<div class="row"><button class="btn primary" data-act="sign-in">Sign in with Google</button></div><p class="note" id="syncstat"></p>';
+        '<div class="row"><button class="btn primary" data-act="sign-in">Sign in with Google</button></div><p class="note" id="syncstat">' + esc(syncText()) + '</p>';
     } else {
       body = '<p class="note">Signed in as <strong>' + esc(cloud.user.email || '') + '</strong></p><p class="note" id="syncstat">' + esc(syncText()) + '</p>' +
         '<div class="row"><button class="btn outline" data-act="sync-now">Sync now</button><button class="btn" data-act="sign-out">Sign out</button></div>';
@@ -1583,5 +1619,5 @@
   render();
   initCloud();
   window.addEventListener('online', function () { syncAll(true); });
-  document.addEventListener('visibilitychange', function () { if (!document.hidden && cloud.user) { syncAll(true); } });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { hubCallback(); } if (!document.hidden && cloud.user) { syncAll(true); } });
 })();
