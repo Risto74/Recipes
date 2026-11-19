@@ -300,3 +300,6 @@ textarea.stepsbox{width:100%;min-height:150px;border:1px solid var(--line2);bord
 .panel.nutri .row{gap:6px;flex-wrap:wrap}
 .panel.nutri .row:last-child{margin-top:10px}
 .panel.nutri .btn{min-height:36px;padding:0 12px;font-size:13px}
+.nsearch{display:flex;gap:8px}
+.nsearch input{flex:1;min-width:0;min-height:44px;border:1px solid var(--line2);border-radius:12px;padding:0 12px;font:inherit;font-size:15px;background:var(--card)}
+.nsearch .btn{min-height:44px}
