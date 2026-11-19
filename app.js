@@ -1688,7 +1688,7 @@
   /* ---------- health rules (profile) ---------- */
 
   var LIMITS = [
-    { k: 'netcarbs', label: 'Net carbs', unit: 'g', dir: 'max', hint: 'carbs minus fiber' },
+    { k: 'netcarbs', label: 'Net carbs', unit: 'g', dir: 'max', hint: 'carbs minus fiber', meal: 'Dinner' },
     { k: 'sugars', label: 'Total sugars', unit: 'g', dir: 'max', hint: '' },
     { k: 'kcal', label: 'Calories', unit: '', dir: 'max', hint: '' },
     { k: 'sodium', label: 'Sodium', unit: 'mg', dir: 'max', hint: '' },
@@ -1717,6 +1717,7 @@
       LIMITS.forEach(function (L) {
         var lim = p.limits[L.k];
         if (lim == null || isNaN(lim)) { return; }
+        if (L.meal && (r.cat || []).map(function (x) { return x.toLowerCase(); }).indexOf(L.meal.toLowerCase()) < 0) { return; }
         var v = L.k === 'netcarbs' ? Math.max(0, (c.per.carbs || 0) - (c.per.fiber || 0)) : c.per[L.k];
         if (v == null) { return; }
         var shown = Math.round(v * 10) / 10;
@@ -1760,7 +1761,7 @@
     var p = profile();
     var lim = LIMITS.map(function (L) {
       var v = p.limits[L.k];
-      return '<div class="crow"><label class="limlbl" for="lim-' + L.k + '">' + L.label + (L.unit ? ' (' + L.unit + ')' : '') + '<small>' + (L.dir === 'max' ? 'flag when over' : 'flag when under') + (L.hint ? ', ' + L.hint : '') + '</small></label>' +
+      return '<div class="crow"><label class="limlbl" for="lim-' + L.k + '">' + L.label + (L.unit ? ' (' + L.unit + ')' : '') + '<small>' + (L.dir === 'max' ? 'flag when over' : 'flag when under') + (L.hint ? ', ' + L.hint : '') + (L.meal ? ', only on ' + L.meal + ' recipes' : '') + '</small></label>' +
         '<input class="inp lim" id="lim-' + L.k + '" type="number" inputmode="decimal" min="0" step="any" placeholder="No limit" data-lim="' + L.k + '" value="' + (v == null ? '' : esc(String(v))) + '"></div>';
     }).join('');
     var av = (p.avoid || []).map(function (w, i) {
