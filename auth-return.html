@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Return to Recipes</title>
+<style>
+body{font:18px system-ui,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F0F3F5;color:#111827}
+.box{text-align:center;padding:24px;max-width:420px}
+h1{font-size:24px;margin:0 0 8px}
+p{color:#4B5563;margin:0 0 24px}
+a.btn{display:inline-block;padding:18px 32px;border-radius:14px;background:#3B5F6B;color:#fff;font-weight:700;text-decoration:none;font-size:20px}
+</style></head><body>
+<div class="box">
+<h1 id="h">Signed in</h1>
+<p id="p">Tap the button to go back to the Recipes app on your tablet.</p>
+<a class="btn" id="go" href="familyhub://spotify">Open Recipes</a>
+</div>
+<script>
+(function () {
+  var q = location.search || '';
+  var p = new URLSearchParams(q);
+  var out = new URLSearchParams();
+  ['code', 'error', 'error_description'].forEach(function (k) { if (p.get(k)) { out.set(k, p.get(k)); } });
+  if (p.get('error') || !p.get('code')) {
+    document.getElementById('h').textContent = 'Sign-in did not finish';
+    document.getElementById('p').textContent = p.get('error_description') || 'No sign-in code was received. Go back to the app and try again.';
+  }
+  document.getElementById('go').href = 'familyhub://spotify' + (out.toString() ? '?' + out.toString() : '');
+})();
+</script>
+</body></html>
