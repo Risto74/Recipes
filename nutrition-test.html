@@ -33,10 +33,21 @@ pre{background:#fff;border:1px solid #D8E0E5;border-radius:12px;padding:12px;whi
       }
       var rows = (r.data.foods || []).map(function (f) {
         var p = f.per100g;
-        return '<tr><td>' + esc(f.name) + '<br><small>' + esc(f.type) + '</small></td><td>' + esc(p.kcal) + '</td><td>' + esc(p.sugars) + '</td><td>' + esc(p.carbs) + '</td><td>' + esc(p.protein) + '</td><td>' + esc(p.fat) + '</td><td>' + esc(p.fiber) + '</td><td>' + esc(p.sodium) + '</td></tr>';
+        return '<tr data-id="' + esc(f.fdcId) + '" style="cursor:pointer"><td>' + esc(f.name) + '<br><small>' + esc(f.type) + '</small></td><td>' + esc(p.kcal) + '</td><td>' + esc(p.sugars) + '</td><td>' + esc(p.carbs) + '</td><td>' + esc(p.protein) + '</td><td>' + esc(p.fat) + '</td><td>' + esc(p.fiber) + '</td><td>' + esc(p.sodium) + '</td></tr>';
       }).join('');
-      out.innerHTML = '<p>Values are per 100 g. A blank cell means USDA has no value.</p><table><tr><th>Food</th><th>kcal</th><th>Sugars g</th><th>Carbs g</th><th>Protein g</th><th>Fat g</th><th>Fiber g</th><th>Sodium mg</th></tr>' + (rows || '<tr><td colspan="8">No matches</td></tr>') + '</table>';
+      out.innerHTML = '<p>Values are per 100 g. A blank cell means USDA has no value. Tap a row to see its household measures (cup, tbsp, slice...).</p><table><tr><th>Food</th><th>kcal</th><th>Sugars g</th><th>Carbs g</th><th>Protein g</th><th>Fat g</th><th>Fiber g</th><th>Sodium mg</th></tr>' + (rows || '<tr><td colspan="8">No matches</td></tr>') + '</table>';
     });
   };
+  out.addEventListener('click', function (e) {
+    var tr = e.target.closest('tr[data-id]'); if (!tr) { return; }
+    var box = document.getElementById('por') || out.appendChild(document.createElement('div')); box.id = 'por';
+    box.innerHTML = '<pre>Loading measures...</pre>';
+    sb.functions.invoke('smooth-responder', { body: { fdcId: tr.getAttribute('data-id') } }).then(function (r) {
+      if (r.error) { box.innerHTML = '<pre>Error: ' + esc(r.error.message || r.error) + '</pre>'; return; }
+      var d = r.data;
+      var rows = (d.portions || []).map(function (p) { return '<tr><td>' + esc(p.amount) + ' x ' + esc(p.label) + '</td><td>' + esc(p.grams) + ' g</td></tr>'; }).join('');
+      box.innerHTML = '<h3>' + esc(d.name) + '</h3><table><tr><th>Measure</th><th>Weight</th></tr>' + (rows || '<tr><td colspan="2">USDA lists no household measures for this food</td></tr>') + '</table><p>Raw sample from USDA:</p><pre>' + esc(JSON.stringify(d.sample, null, 1)) + '</pre>';
+    });
+  });
 })();
 </script></body></html>
