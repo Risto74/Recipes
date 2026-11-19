@@ -469,7 +469,7 @@
 
   var ui = {
     fCat: 'All', fCuisine: 'All', fTag: 'All', q: '', servings: {}, weekOffset: 0, step: 0, tpick: {}, timer: null, tick: null,
-    nutri: { busy: false, id: null, msg: '', review: null, pick: null }, draft: null, editId: null, importTab: 'text', importText: '', modal: null, confirmDel: null, confirmCfg: null, reorder: false, focusRow: null, lastPtr: ''
+    nutri: { busy: false, id: null, msg: '', review: null, pick: null, q: '', smsg: '', sbusy: false }, draft: null, editId: null, importTab: 'text', importText: '', modal: null, confirmDel: null, confirmCfg: null, reorder: false, focusRow: null, lastPtr: ''
   };
   var wakeLock = null;
 
@@ -1215,6 +1215,10 @@
       var b = t.parentNode.querySelector('[data-act="cfg-add"]');
       if (b) { b.click(); }
     }
+    if (ev.key === 'Enter' && t.id === 'nsearch') {
+      var sb2 = t.parentNode.querySelector('[data-act="nutri-search"]');
+      if (sb2) { sb2.click(); }
+    }
   });
 
   document.addEventListener('click', function (ev) {
@@ -1257,8 +1261,14 @@
     if (act === 'nutri-close') { ui.nutri.review = null; ui.nutri.pick = null; rerender(); return; }
     if (act === 'nutri-change') {
       var ck = el.getAttribute('data-k');
-      ui.nutri.pick = ui.nutri.pick === ck ? null : ck;
+      ui.nutri.pick = ui.nutri.pick === ck ? null : ck; ui.nutri.q = ''; ui.nutri.smsg = '';
       rerender(); return;
+    }
+    if (act === 'nutri-search') {
+      var sk = el.getAttribute('data-k');
+      var inp = document.getElementById('nsearch');
+      nutriSearch(sk, inp ? inp.value : '');
+      return;
     }
     if (act === 'nutri-pick' || act === 'nutri-skip' || act === 'nutri-ok') {
       var rr = byId(cur.id);
@@ -1541,7 +1551,9 @@
         '<div class="nr">' + (flag && f ? '<button class="btn" data-act="nutri-ok" data-k="' + esc(it.key) + '">Looks right</button>' : '') +
         '<button class="btn" data-act="nutri-change" data-k="' + esc(it.key) + '">' + (open ? 'Close' : 'Change') + '</button></div></div>';
       if (open && m) {
-        line += '<div class="npick">' + (m.alts || []).map(function (a, i) {
+        line += '<div class="npick"><div class="nsearch"><input id="nsearch" type="search" placeholder="Search USDA, for example pork shoulder" value="' + esc(n.q || '') + '" data-k="' + esc(it.key) + '">' +
+          '<button class="btn" data-act="nutri-search" data-k="' + esc(it.key) + '"' + (n.sbusy ? ' disabled' : '') + '>' + (n.sbusy ? 'Searching...' : 'Search') + '</button></div>' +
+          (n.smsg ? '<p class="note warn">' + esc(n.smsg) + '</p>' : '') + (m.alts || []).map(function (a, i) {
           return '<button class="btn" data-act="nutri-pick" data-k="' + esc(it.key) + '" data-i="' + i + '">' + esc(a.name) + ' <small>(' + esc(a.type) + ')</small></button>';
         }).join('') + '<button class="btn danger" data-act="nutri-skip" data-k="' + esc(it.key) + '">' + (m.skip ? 'Include again' : 'Skip this ingredient') + '</button></div>';
       }
@@ -1596,6 +1608,32 @@
       var flaggedCount = names.filter(function (x) { var e = r.nm[nkey(x)]; return e && e.flagged; }).length;
       n.msg = flaggedCount ? flaggedCount + ' match' + (flaggedCount > 1 ? 'es are' : ' is') + ' worth a look. Tap Review ingredients.' : '';
       rerender();
+    });
+  }
+
+  function nutriSearch(key, text) {
+    var n = ui.nutri;
+    var r = byId(cur.id);
+    var m = r && r.nm && r.nm[key];
+    text = String(text || '').trim();
+    n.q = text; n.smsg = '';
+    if (!m || !text) { n.smsg = 'Type a food to search for.'; rerender(); return; }
+    if (!sb || !cloud.user) { n.smsg = 'Sign in under Settings to search.'; rerender(); return; }
+    n.sbusy = true; rerender();
+    sb.functions.invoke(NUTRI_FN, { body: { q: text } }).then(function (res) {
+      n.sbusy = false;
+      if (res.error || !res.data) {
+        return fnError(res.error).then(function (msg) { n.smsg = msg; rerender(); });
+      }
+      var seen = {};
+      var list = [];
+      (res.data.foods || []).concat(m.alts || []).forEach(function (f) {
+        if (!f || seen[f.fdcId] || (m.food && f.fdcId === m.food.fdcId)) { return; }
+        seen[f.fdcId] = true; list.push(compactFood(f, false));
+      });
+      m.alts = list.slice(0, 10);
+      n.smsg = (res.data.foods || []).length ? '' : 'No USDA foods found for that search.';
+      save(); rerender();
     });
   }
 
