@@ -1542,10 +1542,10 @@
   }
 
   // Inside the Family Hub app, Google sign-in opens in Chrome and returns through familyhub://spotify
-  // (the same return address the Hub already uses for Spotify). The Hub app stores the result for us to pick up.
+  // (an https page with an Open Recipes button, which links to the Hub's familyhub://spotify address). The Hub app stores the result for us to pick up.
   var IN_HUB = !!(window.HubApp && window.HubApp.openUrl && window.HubApp.takeSpotifyCallback);
   var PEND_KEY = 'recipeapp.authpending';
-  var HUB_RETURN = 'familyhub://spotify';
+  var HUB_RETURN = 'https://risto74.github.io/Recipes/auth-return.html';
 
   function hubSignIn() {
     sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: HUB_RETURN, skipBrowserRedirect: true } }).then(function (r) {
