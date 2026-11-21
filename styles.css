@@ -317,3 +317,11 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
 
 .photobar{display:flex;flex-wrap:wrap;gap:8px}
 .photobar .btn{min-height:40px;padding:0 14px;font-size:14px}
+
+.pfind{margin-top:10px;padding:12px}
+.pfind .row{display:flex;gap:8px;flex-wrap:wrap}
+.pfind .inp{flex:1;min-width:140px;min-height:40px}
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.pthumb{padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:none;cursor:pointer;aspect-ratio:4/3}
+.pthumb:hover,.pthumb:focus{border-color:var(--accent,#5b7c99)}
+.pthumb img{width:100%;height:100%;object-fit:cover;display:block}
