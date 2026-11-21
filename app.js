@@ -223,13 +223,15 @@
   }
 
   function splitUnit(rest) {
+    var dm = rest.match(/^([A-Za-z]+)\s*\/\s*(\d*\.?\d+\s*[A-Za-z]+)\s+(\S.*)$/);
+    if (dm && UNITS[dm[1].toLowerCase()]) { return { u: dm[1], n: dm[3] + ' (' + dm[2].replace(/\s+/, '') + ')' }; }
     var m = rest.match(/^([A-Za-z]+\.?)\s+(.*)$/);
     if (m && UNITS[m[1].toLowerCase().replace('.', '')]) { return { u: m[1], n: m[2] }; }
     return { u: '', n: rest };
   }
 
   function parseIngredientLine(line) {
-    line = line.replace(/^[-•*●]\s*/, '').trim();
+    line = line.trim().replace(/^[•●▪◦·‣∙]\s*/, '').replace(/^[-–*]\s+/, '').trim();
     var om = line.match(/^((?:option|choice)\s*\d+)\s*[:.\-\u2013]\s*(.+)$/i);
     if (om) {
       var inner = parseIngredientLine(om[2]);
@@ -380,7 +382,7 @@
   function parseText(text) {
     var glued = false;
     if (needsRepair(text)) { text = repairGlued(text); glued = true; }
-    var lines = text.replace(/\r/g, '').split('\n').map(function (l) { return l.trim().replace(/^[*•●]\s+/, '').replace(/^[-–]\s+/, ''); });
+    var lines = text.replace(/\r/g, '').split('\n').map(function (l) { return l.trim().replace(/^[•●▪◦·‣∙]\s*/, '').replace(/^[*]\s+/, '').replace(/^[-–]\s+/, ''); });
     var out = { title: '', servings: 4, minutes: 0, ing: [], steps: [] };
     var sm = text.match(/(?:serves|servings?|yields?|makes)\s*:?\s*(\d+)/i);
     if (!sm) { sm = text.match(/\(\s*(\d+)\s*servings?\s*\)/i) || text.match(/(\d+)\s*servings?\b/i); }
@@ -1127,6 +1129,7 @@
   /* ---------- bulk import (one time, from a Google Keep export) ---------- */
 
   var BULK_KEY = 'recipeapp.bulk';
+  var GENERIC_TITLE = /^(recipes?|ingredients?|instructions?|directions?|method|notes?|untitled)$/i;
   var bulk = loadBulk();
   var bulkUi = { run: false, stop: false, msg: '', now: '' };
 
@@ -1181,7 +1184,7 @@
   function bulkFromText(item) {
     var d = textDraft(item.text);
     if (!d.ingr.some(function (r) { return r.h == null; })) { return null; }
-    if (!d.title.trim()) { d.title = item.title; }
+    if (!d.title.trim() || GENERIC_TITLE.test(d.title.trim())) { d.title = item.title || 'Untitled recipe'; }
     if (item.url) { d.src = item.url; }
     return d;
   }
@@ -1205,6 +1208,7 @@
       }
       var rec = res.data.recipe;
       if (!rec.ingredients || !rec.ingredients.length) { return fallback('No ingredients found on that page.'); }
+      if (!rec.steps || !rec.steps.length) { return fallback('No steps found on that page.'); }
       var d2 = linkDraft(rec, res.data.source || item.url, []);
       if (!d2.title.trim()) { d2.title = item.title; }
       return { ok: true, draft: d2 };
@@ -1263,6 +1267,28 @@
     next();
   }
 
+  // Imported recipes that probably need a human look: no real name, no steps, or a very long "ingredient" line.
+  function bulkAttention() {
+    var out = [];
+    db.recipes.forEach(function (r) {
+      if ((r.tags || []).indexOf('Keep import') < 0) { return; }
+      var why = [];
+      if (!r.title || GENERIC_TITLE.test(String(r.title).trim()) || /^untitled recipe/i.test(r.title)) { why.push('needs a name'); }
+      if (!r.steps || !r.steps.length) { why.push('no steps'); }
+      if ((r.ingredients || []).some(function (i) { return i.n && i.n.length > 140; })) { why.push('very long ingredient line'); }
+      if (why.length) { out.push({ id: r.id, title: r.title || '(no name)', why: why.join(', ') }); }
+    });
+    return out;
+  }
+
+  function bulkAttentionPanel() {
+    var rows = bulkAttention();
+    if (!rows.length) { return ''; }
+    return '<div class="panel"><h2>Needs attention (' + rows.length + ')</h2><p class="note">Imported recipes that probably need a fix. Open one and use Edit recipe.</p><ul class="blist">' + rows.map(function (r) {
+      return '<li><a href="#/recipe/' + esc(r.id) + '">' + esc(r.title) + '</a><span class="note"> ' + esc(r.why) + '</span></li>';
+    }).join('') + '</ul></div>';
+  }
+
   function bulkList(title, rows) {
     if (!rows.length) { return ''; }
     return '<div class="panel"><h2>' + esc(title) + ' (' + rows.length + ')</h2><ul class="blist">' + rows.map(function (r) {
@@ -1277,7 +1303,7 @@
     if (!n) {
       h += '<div class="panel"><h2>One-time import from Google Keep</h2>' +
         '<p class="note">Choose the file <b>keep-recipes.json</b>. The app reads each recipe link through your account and saves the recipe with the tag <b>Keep import</b>. Keep this page open while it runs. Nothing is lost if you close it. It continues where it stopped.</p>' +
-        '<input type="file" accept=".json,application/json" data-bulk="1"></div></div>';
+        '<input type="file" accept=".json,application/json" data-bulk="1"></div>' + bulkAttentionPanel() + '</div>';
       return shell('settings', h);
     }
     var c = bulkCounts();
@@ -1297,7 +1323,7 @@
       if (it.skip) { skips.push({ title: it.title, url: it.url, why: it.skip }); }
       else if (d && d.s === 'fail') { fails.push({ title: it.title, url: it.url, why: d.why }); }
     });
-    h += bulkList('Failed', fails) + bulkList('Skipped', skips) + '</div>';
+    h += bulkAttentionPanel() + bulkList('Failed', fails) + bulkList('Skipped', skips) + '</div>';
     return shell('settings', h);
   }
 
