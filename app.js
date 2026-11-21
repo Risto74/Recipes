@@ -522,6 +522,12 @@
     return '<p class="meta" style="margin-top:4px;font-size:13px">Source: <a href="' + esc(r.src) + '" target="_blank" rel="noopener noreferrer">' + esc(host) + '</a></p>';
   }
 
+  function creditLine(r) {
+    var c = r && r.credit;
+    if (!c || !/^https:\/\/pixabay\.com\//i.test(c.p || '')) { return ''; }
+    return '<p class="meta" style="margin-top:4px;font-size:13px">Image by ' + esc(c.n || 'a photographer') + ' on <a href="' + esc(c.p) + '" target="_blank" rel="noopener noreferrer">Pixabay</a></p>';
+  }
+
   function imgTag(r) {
     if (!r) { return ''; }
     var u = r.photo ? photoUrl(r) : r.img;
@@ -656,7 +662,7 @@
     return shell('library',
       '<div class="detail"><div class="left"><a class="back" href="#/">' + IC.back + 'All recipes</a>' +
       '<div class="hero" aria-hidden="true" style="background:' + ph(r.id) + '">' + esc(r.title.charAt(0).toUpperCase()) + imgTag(r) + '</div>' + photoBar(r) +
-      '<div><h1 class="hero-t">' + esc(r.title) + '</h1><p class="meta" style="margin-top:8px;font-size:14px">' + esc(metaText(r)) + '</p>' + sourceLine(r) + '</div>' +
+      '<div><h1 class="hero-t">' + esc(r.title) + '</h1><p class="meta" style="margin-top:8px;font-size:14px">' + esc(metaText(r)) + '</p>' + sourceLine(r) + creditLine(r) + '</div>' +
       (chips ? '<div class="tags">' + chips + '</div>' : '') +
       '<div class="actions"><a class="btn primary big" href="#/cook/' + esc(r.id) + '">' + IC.play + 'Cook</a>' +
       '<button class="btn outline big" data-act="addplan" data-id="' + esc(r.id) + '">Add to plan</button></div>' +
@@ -1422,6 +1428,14 @@
       return;
     }
     if (act === 'photo-del') { removePhoto(id); return; }
+    if (act === 'photo-find') {
+      var rr = byId(id);
+      photoUi.find = { rid: id, q: rr ? rr.title : '', busy: false, msg: '', list: null };
+      rerender(); photoSearch(id); return;
+    }
+    if (act === 'photo-close') { photoUi.find = null; rerender(); return; }
+    if (act === 'photo-search') { photoSearch(photoUi.find && photoUi.find.rid); return; }
+    if (act === 'photo-use') { photoUse(id, +el.getAttribute('data-i')); return; }
     if (act === 'i-link') {
       var lu = document.getElementById('linkurl');
       var url = (lu ? lu.value : ui.linkUrl).trim();
@@ -1472,6 +1486,10 @@
       if (ui.focusRow != null && ui.focusRow >= dn) { ui.focusRow = ui.focusRow > 0 ? ui.focusRow - 1 : null; }
       rerender(); return;
     }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' && ev.target && ev.target.id === 'pfq') { ev.preventDefault(); photoSearch(photoUi.find && photoUi.find.rid); }
   });
 
   document.addEventListener('input', function (ev) {
@@ -1852,7 +1870,7 @@
   /* ---------- own photos (Supabase Storage, private bucket) ---------- */
 
   var PHOTO_BUCKET = 'recipe-photos';
-  var photoUi = { busy: null, msg: '' };
+  var photoUi = { busy: null, msg: '', find: null };
   var photoCache = {};
   var photoPending = {};
   var photoFail = {};
@@ -1920,6 +1938,7 @@
       if (!r2) { photoRemoveStored(path); rerender(); return; }
       var old = r2.photo;
       r2.photo = path;
+      delete r2.credit;
       if (old && old !== path) { photoRemoveStored(old); }
       save(); rerender();
     }).catch(function (e) {
@@ -1936,8 +1955,67 @@
     if (r.photo) { photoRemoveStored(r.photo); }
     delete r.photo;
     delete r.img;
+    delete r.credit;
     photoUi.msg = '';
     save(); rerender();
+  }
+
+  function findPanel(r) {
+    var f = photoUi.find;
+    if (!f || f.rid !== r.id) { return ''; }
+    var h = '<div class="panel pfind"><div class="row"><input id="pfq" class="inp" type="text" value="' + esc(f.q) + '" placeholder="Search stock photos"><button class="btn" data-act="photo-search">Search</button><button class="btn" data-act="photo-close">Close</button></div>';
+    if (f.busy) { h += '<p class="note">Searching...</p>'; }
+    if (f.msg) { h += '<p class="note warn">' + esc(f.msg) + '</p>'; }
+    if (f.list && f.list.length) {
+      h += '<div class="pgrid">';
+      f.list.forEach(function (p, i) {
+        h += '<button class="pthumb" data-act="photo-use" data-id="' + esc(r.id) + '" data-i="' + i + '" aria-label="Use this photo"><img src="' + esc(p.thumb) + '" alt="" loading="lazy" referrerpolicy="no-referrer"></button>';
+      });
+      h += '</div><p class="meta" style="font-size:12px">Photos from <a href="https://pixabay.com" target="_blank" rel="noopener noreferrer">Pixabay</a>. Tap one to save it to this recipe.</p>';
+    } else if (f.list && !f.busy && !f.msg) {
+      h += '<p class="note">No photos found. Try different words.</p>';
+    }
+    return h + '</div>';
+  }
+
+  function photoSearch(rid) {
+    var f = photoUi.find;
+    if (!f || f.rid !== rid) { return; }
+    var inp = document.getElementById('pfq');
+    if (inp) { f.q = inp.value.trim(); }
+    if (!f.q || f.busy) { return; }
+    if (!sb || !cloud.user) { f.msg = 'Sign in under Settings to search photos.'; rerender(); return; }
+    f.busy = true; f.msg = ''; f.list = null; rerender();
+    sb.functions.invoke(NUTRI_FN, { body: { photo: f.q } }).then(function (res) {
+      f.busy = false;
+      if (res.error || !res.data || !res.data.photos) {
+        return fnError(res.error).then(function (m) { f.msg = m; rerender(); });
+      }
+      f.list = res.data.photos; rerender();
+    });
+  }
+
+  function photoUse(rid, i) {
+    var f = photoUi.find;
+    var p = f && f.list && f.list[i];
+    if (!byId(rid) || !p || f.busy) { return; }
+    if (!sb || !cloud.user) { f.msg = 'Sign in under Settings to save a photo.'; rerender(); return; }
+    f.busy = true; f.msg = ''; rerender();
+    sb.functions.invoke(NUTRI_FN, { body: { photoSave: { id: p.id, rid: rid } } }).then(function (res) {
+      if (res.error || !res.data || !res.data.path) {
+        f.busy = false;
+        return fnError(res.error).then(function (m) { f.msg = m; rerender(); });
+      }
+      var r = byId(rid);
+      if (!r) { photoRemoveStored(res.data.path); photoUi.find = null; rerender(); return; }
+      var old = r.photo;
+      r.photo = res.data.path;
+      delete r.img;
+      r.credit = { n: res.data.by || p.by, p: res.data.page || p.page };
+      if (old && old !== r.photo) { photoRemoveStored(old); }
+      photoUi.find = null; photoUi.msg = '';
+      save(); rerender();
+    });
   }
 
   function photoBar(r) {
@@ -1948,8 +2026,9 @@
     return '<div class="photobar">' +
       (touch ? '<button class="btn" data-act="photo-pick" data-cam="1"' + dis + '>Take photo</button>' : '') +
       '<button class="btn" data-act="photo-pick"' + dis + '>' + (busy ? 'Saving photo...' : (has ? 'Change photo' : 'Choose photo')) + '</button>' +
+      '<button class="btn" data-act="photo-find" data-id="' + esc(r.id) + '"' + dis + '>Find photo</button>' +
       (has ? '<button class="btn" data-act="photo-del" data-id="' + esc(r.id) + '"' + dis + '>Remove photo</button>' : '') +
-      '</div>' + (photoUi.msg ? '<p class="note warn">' + esc(photoUi.msg) + '</p>' : '') +
+      '</div>' + (photoUi.msg ? '<p class="note warn">' + esc(photoUi.msg) + '</p>' : '') + findPanel(r) +
       '<input type="file" accept="image/*" id="pfile" hidden data-photo="' + esc(r.id) + '">' +
       '<input type="file" accept="image/*" capture="environment" id="pfilecam" hidden data-photo="' + esc(r.id) + '">';
   }
