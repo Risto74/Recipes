@@ -642,7 +642,8 @@
       '<div class="cfgwrap">' + accountPanel() +
       listPanel('Types', 'cats', 'The choices shown when you tag a recipe, like Breakfast or Dessert. Rename a type by editing it. Use the arrows to change the order.') +
       listPanel('Cuisines', 'cuisines', 'The cuisine suggestions. A new cuisine you type on a recipe is added here for you.') +
-      listPanel('Tags', 'tags', 'Free tags come from your recipes. You can rename or remove them here. Add new ones while editing a recipe.') + '</div>');
+      listPanel('Tags', 'tags', 'Free tags come from your recipes. You can rename or remove them here. Add new ones while editing a recipe.') +
+      '<div class="panel"><h2>Bulk import</h2><p class="note">A one-time import of many recipe links, for example from a Google Keep export.</p><div><a class="btn" href="#/bulk">Open bulk import</a></div></div></div>');
   }
 
   function ingItems(r, scale) {
@@ -985,6 +986,7 @@
     if (nr.name === 'cook' && r) { return cookView(r); }
     if (nr.name === 'edit' && r) { return editView(r); }
     if (nr.name === 'settings') { return settingsView(); }
+    if (nr.name === 'bulk') { return bulkView(); }
     if (nr.name === 'profile') { return profileView(); }
     if (nr.name === 'plan') { return planView(); }
     if (nr.name === 'import') { return importView(); }
@@ -1023,8 +1025,12 @@
   function startDraft(text) {
     ui.reorder = false;
     ui.focusRow = null;
+    ui.draft = textDraft(text);
+  }
+
+  function textDraft(text) {
     var p = parseText(text);
-    ui.draft = {
+    return {
       original: text, title: p.title, servings: p.servings, cook: p.minutes || '', cat: [], cuisine: '', tags: '',
       ingr: p.ing.map(function (i) { return i.h != null ? { h: i.h } : rowFromIng(i); }),
       steps: p.steps.join('\n')
@@ -1034,6 +1040,10 @@
   function startLinkDraft(rec, source) {
     ui.reorder = false;
     ui.focusRow = null;
+    ui.draft = linkDraft(rec, source, (ui.draft && ui.draft.cat) || []);
+  }
+
+  function linkDraft(rec, source, cats) {
     var ing = (rec.ingredients || []).map(function (l) {
       var pl = parseIngredientLine(l);
       return pl.n ? rowFromIng(pl) : { qty: '', name: l, missing: true };
@@ -1041,12 +1051,11 @@
     var img = String(rec.image || '').replace(/^http:\/\//i, 'https://');
     if (!/^https:\/\//i.test(img)) { img = ''; }
     var orig = 'Imported from ' + source + '\n\n' + (rec.title || '') + '\n\nIngredients\n' + (rec.ingredients || []).join('\n') + '\n\nInstructions\n' + (rec.steps || []).join('\n');
-    var cats = (ui.draft && ui.draft.cat) || [];
     var known = [];
     (rec.category || []).concat(rec.cuisine ? [] : []).forEach(function (c) {
       db.config.cats.forEach(function (k) { if (k.toLowerCase() === String(c).toLowerCase() && known.indexOf(k) < 0) { known.push(k); } });
     });
-    ui.draft = {
+    return {
       original: orig, title: rec.title || '', servings: rec.servings || 4, cook: rec.minutes || '', cat: known.length ? known : cats, cuisine: rec.cuisine || '', tags: '',
       ingr: ing, steps: (rec.steps || []).join('\n'), src: source, img: img
     };
@@ -1061,9 +1070,7 @@
     };
   }
 
-  function saveDraft() {
-    var d = ui.draft;
-    if (!d || !d.title.trim()) { return false; }
+  function fieldsFromDraft(d) {
     var ingredients = [];
     d.ingr.forEach(function (i) {
       if (i.h != null) { if (i.h.trim()) { ingredients.push({ h: i.h.trim() }); } return; }
@@ -1080,12 +1087,18 @@
       steps.push({ t: l, s: ts[0] || 0, ts: ts });
     });
     var sv = parseInt(d.servings, 10);
-    var fields = {
+    return {
       title: d.title.trim(), servings: sv > 0 ? sv : 4, prep: 0, cook: parseInt(d.cook, 10) || 0,
       cat: d.cat.slice(), cuisine: d.cuisine.trim(),
       tags: d.tags.split(',').map(function (t) { return t.trim(); }).filter(Boolean),
       ingredients: ingredients, steps: steps
     };
+  }
+
+  function saveDraft() {
+    var d = ui.draft;
+    if (!d || !d.title.trim()) { return false; }
+    var fields = fieldsFromDraft(d);
     if (fields.cuisine && db.config.cuisines.map(function (c) { return c.toLowerCase(); }).indexOf(fields.cuisine.toLowerCase()) < 0) { db.config.cuisines.push(fields.cuisine); }
     var id;
     if (ui.editId) {
@@ -1109,6 +1122,183 @@
     ui.servings[id] = null;
     location.hash = '#/recipe/' + id;
     return true;
+  }
+
+  /* ---------- bulk import (one time, from a Google Keep export) ---------- */
+
+  var BULK_KEY = 'recipeapp.bulk';
+  var bulk = loadBulk();
+  var bulkUi = { run: false, stop: false, msg: '', now: '' };
+
+  function loadBulk() {
+    var b = null;
+    try { b = JSON.parse(localStorage.getItem(BULK_KEY)); } catch (e) { b = null; }
+    if (!b || !b.items || !b.done) { b = { items: [], done: {} }; }
+    return b;
+  }
+
+  function saveBulk() {
+    try { localStorage.setItem(BULK_KEY, JSON.stringify(bulk)); } catch (e) { /* ignore */ }
+  }
+
+  function bulkKey(u) {
+    return String(u || '').toLowerCase().replace(/#.*$/, '').replace(/[?&]utm_[^&]*/g, '').replace(/\/+$/, '');
+  }
+
+  function bulkLoad(text) {
+    var j = null;
+    try { j = JSON.parse(text); } catch (e) { j = null; }
+    if (!j || !Array.isArray(j.items) || !j.items.length) { bulkUi.msg = 'That file is not a bulk import file.'; return; }
+    bulk = { items: [], done: {} };
+    j.items.slice(0, 3000).forEach(function (it) {
+      if (!it || typeof it !== 'object') { return; }
+      var o = { title: String(it.title || '').slice(0, 160), url: /^https?:\/\//i.test(it.url || '') ? String(it.url).slice(0, 600) : '' };
+      if (it.text) { o.text = String(it.text).slice(0, 20000); }
+      if (it.skip) { o.skip = String(it.skip).slice(0, 40); }
+      bulk.items.push(o);
+    });
+    bulkUi.msg = '';
+    saveBulk();
+  }
+
+  function bulkCounts() {
+    var c = { total: bulk.items.length, skip: 0, ok: 0, fail: 0, dup: 0, left: 0 };
+    bulk.items.forEach(function (it, i) {
+      var d = bulk.done[i];
+      if (it.skip) { c.skip++; return; }
+      if (!d) { c.left++; } else if (d.s === 'ok') { c.ok++; } else if (d.s === 'dup') { c.dup++; } else { c.fail++; }
+    });
+    return c;
+  }
+
+  function bulkNext() {
+    for (var i = 0; i < bulk.items.length; i++) {
+      if (!bulk.items[i].skip && !bulk.done[i]) { return i; }
+    }
+    return -1;
+  }
+
+  function bulkFromText(item) {
+    var d = textDraft(item.text);
+    if (!d.ingr.some(function (r) { return r.h == null; })) { return null; }
+    if (!d.title.trim()) { d.title = item.title; }
+    if (item.url) { d.src = item.url; }
+    return d;
+  }
+
+  // Resolves to { ok, draft } or { ok: false, why, auth }. Never rejects.
+  function bulkFetch(item) {
+    function fallback(why) {
+      if (item.text) {
+        var d = bulkFromText(item);
+        if (d) { return { ok: true, draft: d }; }
+      }
+      return { ok: false, why: why };
+    }
+    if (!item.url) { return Promise.resolve(fallback('Could not find ingredients in the note.')); }
+    return sb.functions.invoke(NUTRI_FN, { body: { url: item.url } }).then(function (res) {
+      if (res.error || !res.data || !res.data.recipe) {
+        return fnError(res.error).then(function (m) {
+          if (/not signed in/i.test(m)) { return { ok: false, why: m, auth: true }; }
+          return fallback(m);
+        });
+      }
+      var rec = res.data.recipe;
+      if (!rec.ingredients || !rec.ingredients.length) { return fallback('No ingredients found on that page.'); }
+      var d2 = linkDraft(rec, res.data.source || item.url, []);
+      if (!d2.title.trim()) { d2.title = item.title; }
+      return { ok: true, draft: d2 };
+    }, function (e) { return fallback(failMsg(e)); });
+  }
+
+  function bulkAdd(item, d, i) {
+    var f = fieldsFromDraft(d);
+    if (!f.title) { f.title = item.title || 'Untitled'; }
+    if (f.cuisine && db.config.cuisines.map(function (c) { return c.toLowerCase(); }).indexOf(f.cuisine.toLowerCase()) < 0) { db.config.cuisines.push(f.cuisine); }
+    if (f.tags.indexOf('Keep import') < 0) { f.tags.push('Keep import'); }
+    f.id = 'r' + Date.now() + '-' + i;
+    f.original = d.original;
+    if (d.src) { f.src = d.src; }
+    if (d.img) { f.img = d.img; }
+    db.recipes.unshift(f);
+    return f.id;
+  }
+
+  function bulkRun(limit) {
+    if (bulkUi.run) { return; }
+    if (!sb || !cloud.user) { bulkUi.msg = 'Sign in under Settings first. The import reads pages through your account.'; rerender(); return; }
+    bulkUi.run = true; bulkUi.stop = false; bulkUi.msg = '';
+    var have = {};
+    db.recipes.forEach(function (r) { if (r.src) { have[bulkKey(r.src)] = 1; } });
+    var count = 0;
+    var streak = 0;
+    function finish() {
+      bulkUi.run = false; bulkUi.now = '';
+      persist(); cloudChanged(); rerender();
+    }
+    function next() {
+      if (bulkUi.stop || (limit && count >= limit)) { finish(); return; }
+      var i = bulkNext();
+      if (i < 0) { finish(); return; }
+      var item = bulk.items[i];
+      if (item.url && have[bulkKey(item.url)]) { bulk.done[i] = { s: 'dup' }; saveBulk(); setTimeout(next, 0); return; }
+      count++;
+      bulkUi.now = item.title || item.url;
+      rerender();
+      bulkFetch(item).then(function (r) {
+        if (r.ok) {
+          bulk.done[i] = { s: 'ok', id: bulkAdd(item, r.draft, i) };
+          if (item.url) { have[bulkKey(item.url)] = 1; }
+          streak = 0;
+        } else {
+          bulk.done[i] = { s: 'fail', why: String(r.why || 'Failed').slice(0, 200) };
+          streak++;
+          if (r.auth) { bulkUi.msg = 'You are signed out. Sign in under Settings, then continue.'; bulkUi.stop = true; delete bulk.done[i]; count--; }
+        }
+        saveBulk(); persist();
+        if (streak >= 8) { bulkUi.msg = 'Stopped after 8 failures in a row. Check your connection or the Supabase function, then continue.'; finish(); return; }
+        setTimeout(next, 400);
+      });
+    }
+    next();
+  }
+
+  function bulkList(title, rows) {
+    if (!rows.length) { return ''; }
+    return '<div class="panel"><h2>' + esc(title) + ' (' + rows.length + ')</h2><ul class="blist">' + rows.map(function (r) {
+      return '<li><span>' + esc(r.title || r.url) + '</span>' + (r.url ? ' <a href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer">open link</a>' : '') + (r.why ? '<span class="note"> ' + esc(r.why) + '</span>' : '') + '</li>';
+    }).join('') + '</ul></div>';
+  }
+
+  function bulkView() {
+    var h = '<div class="top"><h1>Bulk import</h1></div><div class="cfgwrap">';
+    var n = bulk.items.length;
+    if (bulkUi.msg) { h += '<p class="note warn">' + esc(bulkUi.msg) + '</p>'; }
+    if (!n) {
+      h += '<div class="panel"><h2>One-time import from Google Keep</h2>' +
+        '<p class="note">Choose the file <b>keep-recipes.json</b>. The app reads each recipe link through your account and saves the recipe with the tag <b>Keep import</b>. Keep this page open while it runs. Nothing is lost if you close it. It continues where it stopped.</p>' +
+        '<input type="file" accept=".json,application/json" data-bulk="1"></div></div>';
+      return shell('settings', h);
+    }
+    var c = bulkCounts();
+    h += '<div class="panel"><h2>' + (bulkUi.run ? 'Importing...' : 'Ready') + '</h2>' +
+      '<p class="note">' + c.ok + ' imported · ' + c.left + ' left · ' + c.fail + ' failed · ' + c.skip + ' skipped' + (c.dup ? ' · ' + c.dup + ' already in your library' : '') + '</p>' +
+      (bulkUi.run ? '<p class="note">Now: ' + esc(bulkUi.now) + '</p>' : '') +
+      '<div class="photobar">' +
+      (bulkUi.run ? '<button class="btn" data-act="bulk-stop">Stop</button>' :
+        (c.left ? '<button class="btn" data-act="bulk-test">Import next 20</button><button class="btn" data-act="bulk-all">Import all remaining</button>' : '') +
+        (c.fail ? '<button class="btn" data-act="bulk-retry">Retry failed</button>' : '') +
+        '<button class="btn" data-act="bulk-clear">Clear import data</button>') +
+      '</div></div>';
+    var fails = [];
+    var skips = [];
+    bulk.items.forEach(function (it, i) {
+      var d = bulk.done[i];
+      if (it.skip) { skips.push({ title: it.title, url: it.url, why: it.skip }); }
+      else if (d && d.s === 'fail') { fails.push({ title: it.title, url: it.url, why: d.why }); }
+    });
+    h += bulkList('Failed', fails) + bulkList('Skipped', skips) + '</div>';
+    return shell('settings', h);
   }
 
   /* ---------- list editing ---------- */
@@ -1249,6 +1439,16 @@
       var pf0 = t.files && t.files[0];
       if (pf0) { setPhoto(pid, pf0); }
       try { t.value = ''; } catch (e) { /* ignore */ }
+      return;
+    }
+    if (t.getAttribute && t.getAttribute('data-bulk')) {
+      var bf = t.files && t.files[0];
+      if (bf) {
+        var rd = new FileReader();
+        rd.onload = function () { bulkLoad(String(rd.result || '')); rerender(); };
+        rd.onerror = function () { bulkUi.msg = 'Could not read that file.'; rerender(); };
+        rd.readAsText(bf);
+      }
       return;
     }
     var fk = t.getAttribute && t.getAttribute('data-filter');
@@ -1426,6 +1626,17 @@
       var fi = document.getElementById(el.getAttribute('data-cam') ? 'pfilecam' : 'pfile');
       if (fi) { fi.click(); }
       return;
+    }
+    if (act === 'bulk-test') { bulkRun(20); return; }
+    if (act === 'bulk-all') { bulkRun(0); return; }
+    if (act === 'bulk-stop') { bulkUi.stop = true; return; }
+    if (act === 'bulk-retry') {
+      Object.keys(bulk.done).forEach(function (k) { if (bulk.done[k].s === 'fail') { delete bulk.done[k]; } });
+      saveBulk(); rerender(); return;
+    }
+    if (act === 'bulk-clear') {
+      if (bulkUi.run) { return; }
+      bulk = { items: [], done: {} }; saveBulk(); bulkUi.msg = ''; rerender(); return;
     }
     if (act === 'photo-del') { removePhoto(id); return; }
     if (act === 'photo-find') {
@@ -2279,6 +2490,7 @@
 
   // Test hook: not used by the page.
   window.__recipeApp = {
+    bulk: function () { return bulk; },
     parseText: parseText, parseIngredientLine: parseIngredientLine, timerSecs: timerSecs, timerList: timerList, groupHead: groupHead, splitStepTitle: splitStepTitle,
     fmtQty: fmtQty, moveRow: moveRow, ui: ui, db: function () { return db; }, setPhotoResizer: function (f) { photoResizer = f; }
   };
