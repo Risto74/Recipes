@@ -325,3 +325,5 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
 .pthumb{padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:none;cursor:pointer;aspect-ratio:4/3}
 .pthumb:hover,.pthumb:focus{border-color:var(--accent,#5b7c99)}
 .pthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.blist{margin:0;padding-left:18px;font-size:14px;line-height:1.5}
+.blist li{margin:4px 0}
