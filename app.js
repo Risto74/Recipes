@@ -523,7 +523,9 @@
   }
 
   function imgTag(r) {
-    return r && r.img ? '<img class="pimg" src="' + esc(r.img) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">' : '';
+    if (!r) { return ''; }
+    var u = r.photo ? photoUrl(r) : r.img;
+    return u ? '<img class="pimg" src="' + esc(u) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">' : '';
   }
 
   function shell(active, inner) {
@@ -653,7 +655,7 @@
       (r.tags || []).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
     return shell('library',
       '<div class="detail"><div class="left"><a class="back" href="#/">' + IC.back + 'All recipes</a>' +
-      '<div class="hero" aria-hidden="true" style="background:' + ph(r.id) + '">' + esc(r.title.charAt(0).toUpperCase()) + imgTag(r) + '</div>' +
+      '<div class="hero" aria-hidden="true" style="background:' + ph(r.id) + '">' + esc(r.title.charAt(0).toUpperCase()) + imgTag(r) + '</div>' + photoBar(r) +
       '<div><h1 class="hero-t">' + esc(r.title) + '</h1><p class="meta" style="margin-top:8px;font-size:14px">' + esc(metaText(r)) + '</p>' + sourceLine(r) + '</div>' +
       (chips ? '<div class="tags">' + chips + '</div>' : '') +
       '<div class="actions"><a class="btn primary big" href="#/cook/' + esc(r.id) + '">' + IC.play + 'Cook</a>' +
@@ -1236,6 +1238,13 @@
 
   document.addEventListener('change', function (ev) {
     var t = ev.target;
+    var pid = t.getAttribute && t.getAttribute('data-photo');
+    if (pid) {
+      var pf0 = t.files && t.files[0];
+      if (pf0) { setPhoto(pid, pf0); }
+      try { t.value = ''; } catch (e) { /* ignore */ }
+      return;
+    }
     var fk = t.getAttribute && t.getAttribute('data-filter');
     if (fk) { ui[fk] = t.value; rerender(); return; }
     var lk = t.getAttribute && t.getAttribute('data-lim');
@@ -1354,7 +1363,7 @@
     }
     if (act === 'sign-out') {
       if (!sb) { return; }
-      sb.auth.signOut({ scope: 'local' }).then(function () { cloud.user = null; cloud.msg = ''; rerender(); });
+      sb.auth.signOut({ scope: 'local' }).then(function () { cloud.user = null; cloud.msg = ''; photoCache = {}; photoFail = {}; rerender(); });
       return;
     }
     if (act === 'sync-now') { syncAll(true).then(function () { rerender(); }); rerender(); return; }
@@ -1374,6 +1383,8 @@
     }
     if (act === 'del') {
       if (ui.confirmDel === id) {
+        var delR = byId(id);
+        if (delR && delR.photo) { photoRemoveStored(delR.photo); }
         db.recipes = db.recipes.filter(function (x) { return x.id !== id; });
         Object.keys(db.plan).forEach(function (k) { if (db.plan[k] === id) { delete db.plan[k]; } });
         save(); ui.confirmDel = null; location.hash = '#/';
@@ -1405,6 +1416,12 @@
       if (!text.trim()) { return; }
       startDraft(text); rerender(); return;
     }
+    if (act === 'photo-pick') {
+      var fi = document.getElementById(el.getAttribute('data-cam') ? 'pfilecam' : 'pfile');
+      if (fi) { fi.click(); }
+      return;
+    }
+    if (act === 'photo-del') { removePhoto(id); return; }
     if (act === 'i-link') {
       var lu = document.getElementById('linkurl');
       var url = (lu ? lu.value : ui.linkUrl).trim();
@@ -1832,6 +1849,111 @@
       '<div class="crow"><input class="inp" id="avadd" placeholder="Add a word or phrase" aria-label="Add to avoid list"><button class="btn primary" data-act="av-add">Add</button></div></section></div>');
   }
 
+  /* ---------- own photos (Supabase Storage, private bucket) ---------- */
+
+  var PHOTO_BUCKET = 'recipe-photos';
+  var photoUi = { busy: null, msg: '' };
+  var photoCache = {};
+  var photoPending = {};
+  var photoFail = {};
+
+  function photoUrl(r) {
+    if (!r || !r.photo) { return ''; }
+    var p = r.photo;
+    var c = photoCache[p];
+    if (c && c.exp > Date.now()) { return c.url; }
+    if (!photoPending[p] && sb && cloud.user && !(photoFail[p] && Date.now() - photoFail[p] < 60000)) {
+      photoPending[p] = true;
+      sb.storage.from(PHOTO_BUCKET).createSignedUrl(p, 3600).then(function (res) {
+        photoPending[p] = false;
+        if (res && res.data && res.data.signedUrl) { photoCache[p] = { url: res.data.signedUrl, exp: Date.now() + 50 * 60 * 1000 }; softRerender(); }
+        else { photoFail[p] = Date.now(); }
+      }, function () { photoPending[p] = false; photoFail[p] = Date.now(); });
+    }
+    return c ? c.url : '';
+  }
+
+  function resizeToJpeg(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var im = new Image();
+      im.onload = function () {
+        var w = im.naturalWidth;
+        var h = im.naturalHeight;
+        var k = Math.min(1, 1200 / Math.max(w, h));
+        var cw = Math.max(1, Math.round(w * k));
+        var ch = Math.max(1, Math.round(h * k));
+        var cv = document.createElement('canvas');
+        cv.width = cw; cv.height = ch;
+        var cx = cv.getContext('2d');
+        cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cw, ch);
+        cx.drawImage(im, 0, 0, cw, ch);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function (b) { if (b) { resolve(b); } else { reject(new Error('encode')); } }, 'image/jpeg', 0.82);
+      };
+      im.onerror = function () { URL.revokeObjectURL(url); reject(new Error('read')); };
+      im.src = url;
+    });
+  }
+  var photoResizer = resizeToJpeg;
+
+  function photoRemoveStored(path) {
+    if (!path || !sb || !cloud.user) { return; }
+    try { sb.storage.from(PHOTO_BUCKET).remove([path]).then(function () {}, function () {}); } catch (e) { /* ignore */ }
+  }
+
+  function setPhoto(rid, file) {
+    var r = byId(rid);
+    if (!r || !file) { return; }
+    if (!sb || !cloud.user) { photoUi.msg = 'Sign in under Settings to add your own photo.'; rerender(); return; }
+    if (!/^image\//i.test(file.type || '')) { photoUi.msg = 'Choose an image file.'; rerender(); return; }
+    photoUi.busy = rid; photoUi.msg = ''; rerender();
+    photoResizer(file).then(function (blob) {
+      var path = cloud.user.id + '/' + rid + '-' + Date.now() + '.jpg';
+      return sb.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false }).then(function (res) {
+        if (res.error) { throw res.error; }
+        return path;
+      });
+    }).then(function (path) {
+      var r2 = byId(rid);
+      photoUi.busy = null;
+      if (!r2) { photoRemoveStored(path); rerender(); return; }
+      var old = r2.photo;
+      r2.photo = path;
+      if (old && old !== path) { photoRemoveStored(old); }
+      save(); rerender();
+    }).catch(function (e) {
+      photoUi.busy = null;
+      var m = e && e.message ? String(e.message) : '';
+      photoUi.msg = (m === 'read' || m === 'encode') ? 'Could not read that image. Try a JPEG or PNG.' : 'Could not save the photo' + (m ? ' (' + m + ')' : '') + '. If this keeps happening, the photo storage may not be set up yet.';
+      rerender();
+    });
+  }
+
+  function removePhoto(rid) {
+    var r = byId(rid);
+    if (!r) { return; }
+    if (r.photo) { photoRemoveStored(r.photo); }
+    delete r.photo;
+    delete r.img;
+    photoUi.msg = '';
+    save(); rerender();
+  }
+
+  function photoBar(r) {
+    var has = !!(r.photo || r.img);
+    var busy = photoUi.busy === r.id;
+    var dis = busy ? ' disabled' : '';
+    var touch = (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
+    return '<div class="photobar">' +
+      (touch ? '<button class="btn" data-act="photo-pick" data-cam="1"' + dis + '>Take photo</button>' : '') +
+      '<button class="btn" data-act="photo-pick"' + dis + '>' + (busy ? 'Saving photo...' : (has ? 'Change photo' : 'Choose photo')) + '</button>' +
+      (has ? '<button class="btn" data-act="photo-del" data-id="' + esc(r.id) + '"' + dis + '>Remove photo</button>' : '') +
+      '</div>' + (photoUi.msg ? '<p class="note warn">' + esc(photoUi.msg) + '</p>' : '') +
+      '<input type="file" accept="image/*" id="pfile" hidden data-photo="' + esc(r.id) + '">' +
+      '<input type="file" accept="image/*" capture="environment" id="pfilecam" hidden data-photo="' + esc(r.id) + '">';
+  }
+
   /* ---------- cloud sync (Supabase) ---------- */
 
   var SB_URL = 'https://bkvikqntpisfnkdlules.supabase.co';
@@ -2079,7 +2201,7 @@
   // Test hook: not used by the page.
   window.__recipeApp = {
     parseText: parseText, parseIngredientLine: parseIngredientLine, timerSecs: timerSecs, timerList: timerList, groupHead: groupHead, splitStepTitle: splitStepTitle,
-    fmtQty: fmtQty, moveRow: moveRow, ui: ui, db: function () { return db; }
+    fmtQty: fmtQty, moveRow: moveRow, ui: ui, db: function () { return db; }, setPhotoResizer: function (f) { photoResizer = f; }
   };
 
   render();
