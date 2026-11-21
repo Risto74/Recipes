@@ -543,6 +543,126 @@
       hub + '</nav><main class="main">' + inner + '</main></div>' + modalHtml();
   }
 
+  /* ---------- Type / Cuisine / Tags pickers (recipe page and edit page) ---------- */
+
+  var SORT_KEY = 'recipeapp.sort';
+  var SORTS = [['new', 'Newest added'], ['old', 'Oldest added'], ['az', 'Title A to Z'], ['za', 'Title Z to A']];
+  ui.pick = null;
+  ui.sort = (function () {
+    try { var v = localStorage.getItem(SORT_KEY); if (SORTS.some(function (x) { return x[0] === v; })) { return v; } } catch (e) { /* ignore */ }
+    return 'new';
+  })();
+
+  function splitTags(str) {
+    return String(str || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  }
+
+  function pkInfo(t, id) {
+    if (t === 'd') {
+      var d = ui.draft;
+      return d ? { cat: d.cat.slice(), cuisine: d.cuisine || '', tags: splitTags(d.tags) } : null;
+    }
+    var r = byId(id);
+    return r ? { cat: (r.cat || []).slice(), cuisine: r.cuisine || '', tags: (r.tags || []).slice() } : null;
+  }
+
+  function pkApply(t, id, info) {
+    if (info.cuisine && db.config.cuisines.map(function (c) { return c.toLowerCase(); }).indexOf(info.cuisine.toLowerCase()) < 0) { db.config.cuisines.push(info.cuisine); }
+    if (t === 'd') {
+      if (!ui.draft) { return; }
+      ui.draft.cat = info.cat; ui.draft.cuisine = info.cuisine; ui.draft.tags = info.tags.join(', ');
+      rerender(); return;
+    }
+    var r = byId(id);
+    if (!r) { return; }
+    r.cat = info.cat; r.cuisine = info.cuisine; r.tags = info.tags; r.sample = false;
+    save(); rerender();
+  }
+
+  function pkLabel(k, info) {
+    if (k === 'cat') {
+      var n = info.cat.length;
+      return n === 0 ? 'Type' : (n <= 2 ? info.cat.join(', ') : info.cat[0] + ' +' + (n - 1));
+    }
+    if (k === 'cui') { return info.cuisine || 'Cuisine'; }
+    return info.tags.length ? 'Tags (' + info.tags.length + ')' : 'Tags';
+  }
+
+  function pkOpt(act, t, id, v, on, label, role) {
+    return '<button type="button" class="pkopt' + (on ? ' on' : '') + '" role="' + role + '" aria-checked="' + (on ? 'true' : 'false') + '" data-act="' + act + '" data-t="' + t + '" data-id="' + esc(id) + '" data-v="' + esc(v) + '">' +
+      '<span class="pkbox" aria-hidden="true">' + (on ? '✓' : '') + '</span>' + esc(label) + '</button>';
+  }
+
+  function pkPanel(t, id, k, info) {
+    var h = '';
+    var addBox = function (ph) {
+      return '<div class="pkadd"><input id="pk-new" class="inp" type="text" placeholder="' + ph + '" aria-label="' + ph + '"><button type="button" class="btn" data-act="pk-new" data-t="' + t + '" data-id="' + esc(id) + '">Add</button></div>';
+    };
+    var done = '<div class="pkdone"><button type="button" class="btn" data-act="pk-close">Done</button></div>';
+    if (k === 'cat') {
+      var cats = db.config.cats.slice();
+      info.cat.forEach(function (c) { if (cats.indexOf(c) < 0) { cats.push(c); } });
+      h = '<div class="pklab">Type (pick any that fit)</div><div class="pkgrid">' + cats.map(function (c) { return pkOpt('pk-cat', t, id, c, info.cat.indexOf(c) >= 0, c, 'checkbox'); }).join('') + '</div>' + done;
+    } else if (k === 'cui') {
+      var cu = db.config.cuisines.slice();
+      if (info.cuisine && cu.indexOf(info.cuisine) < 0) { cu.push(info.cuisine); }
+      h = '<div class="pklab">Cuisine</div><div class="pkgrid">' + pkOpt('pk-cui', t, id, '', !info.cuisine, 'None', 'radio') +
+        cu.map(function (c) { return pkOpt('pk-cui', t, id, c, info.cuisine === c, c, 'radio'); }).join('') + '</div>' + addBox('Other cuisine');
+    } else {
+      var tg = listValues('tags');
+      info.tags.forEach(function (x) { if (tg.indexOf(x) < 0) { tg.push(x); } });
+      tg.sort();
+      h = '<div class="pklab">Tags (pick any)</div>' + (tg.length ? '<div class="pkgrid">' + tg.map(function (x) { return pkOpt('pk-tag', t, id, x, info.tags.indexOf(x) >= 0, x, 'checkbox'); }).join('') + '</div>' : '<p class="note">No tags yet. Add one below.</p>') +
+        addBox('New tag') + done;
+    }
+    return '<div class="pkpanel">' + h + '</div>';
+  }
+
+  function pickRow(t, id) {
+    var info = pkInfo(t, id);
+    if (!info) { return ''; }
+    var open = ui.pick && ui.pick.t === t && ui.pick.id === id ? ui.pick.k : '';
+    var btn = function (k, on) {
+      return '<button type="button" class="pkbtn' + (on ? ' set' : '') + (open === k ? ' open' : '') + '" aria-haspopup="true" aria-expanded="' + (open === k ? 'true' : 'false') + '" data-act="pk-open" data-t="' + t + '" data-id="' + esc(id) + '" data-k="' + k + '">' +
+        esc(pkLabel(k, info)) + ' <span aria-hidden="true">▾</span></button>';
+    };
+    return '<div class="pickwrap"><div class="pickrow">' + btn('cat', info.cat.length) + btn('cui', !!info.cuisine) + btn('tags', info.tags.length) + '</div>' +
+      (open ? pkPanel(t, id, open, info) : '') + '</div>';
+  }
+
+  function pkAct(act, el) {
+    var t = el.getAttribute('data-t');
+    var id = el.getAttribute('data-id') || '';
+    var info = pkInfo(t, id);
+    if (!info) { return; }
+    var v = el.getAttribute('data-v');
+    var flip = function (arr, x) { var i = arr.indexOf(x); if (i >= 0) { arr.splice(i, 1); } else { arr.push(x); } };
+    if (act === 'pk-cat') { flip(info.cat, v); pkApply(t, id, info); return; }
+    if (act === 'pk-tag') { flip(info.tags, v); pkApply(t, id, info); return; }
+    if (act === 'pk-cui') { info.cuisine = v; ui.pick = null; pkApply(t, id, info); return; }
+    if (act === 'pk-new') {
+      var inp = document.getElementById('pk-new');
+      var val = inp ? inp.value.trim() : '';
+      if (!val || !ui.pick) { return; }
+      if (ui.pick.k === 'cui') { info.cuisine = val; ui.pick = null; }
+      else { splitTags(val).forEach(function (x) { if (info.tags.indexOf(x) < 0) { info.tags.push(x); } }); }
+      pkApply(t, id, info);
+    }
+  }
+
+  function sortedRecipes(list) {
+    var idn = function (r) { var m = /^r(\d+)/.exec(String(r.id)); return m ? +m[1] : 0; };
+    var dec = list.map(function (r, i) { return { r: r, i: i, n: idn(r) }; });
+    var tcmp = function (a, b) { return a.r.title.localeCompare(b.r.title, undefined, { sensitivity: 'base', numeric: true }) || a.i - b.i; };
+    dec.sort(function (a, b) {
+      if (ui.sort === 'old') { return (a.n - b.n) || (b.i - a.i); }
+      if (ui.sort === 'az') { return tcmp(a, b); }
+      if (ui.sort === 'za') { return -tcmp(a, b) || a.i - b.i; }
+      return (b.n - a.n) || (a.i - b.i);
+    });
+    return dec.map(function (x) { return x.r; });
+  }
+
   function gridHtml() {
     var q = ui.q.trim().toLowerCase();
     var list = db.recipes.filter(function (r) {
@@ -555,7 +675,7 @@
       return r.ingredients.some(function (i) { return i.n && i.n.toLowerCase().indexOf(q) >= 0; });
     });
     if (!list.length) { return '<div class="empty">No recipes match.</div>'; }
-    return list.map(function (r) {
+    return sortedRecipes(list).map(function (r) {
       var kind = kindText(r);
       return '<a class="card" href="#/recipe/' + esc(r.id) + '"><div class="photo" aria-hidden="true" style="background:' + ph(r.id) + '">' +
         esc(r.title.charAt(0).toUpperCase()) + imgTag(r) + '</div><div class="body">' +
@@ -600,7 +720,7 @@
       '<a class="btn primary" href="#/import">' + IC.plus + 'Add recipe</a></div>' +
       (hasSample ? '<div class="notice">Some recipes here are samples so you can try the app. <button class="btn" data-act="rm-samples">Remove samples</button></div>' : '') +
       '<div class="filters">' + selBox('Type', 'fCat', cats, ui.fCat) + selBox('Cuisine', 'fCuisine', cuis, ui.fCuisine) + selBox('Tag', 'fTag', tags, ui.fTag) +
-      (active ? '<button class="btn" data-act="clear-filters">Clear</button>' : '') + '<span class="sp"></span><a class="btn" href="#/settings">' + IC.gear + 'Edit lists</a></div>' +
+      (active ? '<button class="btn" data-act="clear-filters">Clear</button>' : '') + '<span class="sp"></span><label class="fsel"><span>Sort</span><select data-sort="1" aria-label="Sort recipes">' + SORTS.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === ui.sort ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label><a class="btn" href="#/settings">' + IC.gear + 'Edit lists</a></div>' +
       '<div class="grid" id="grid">' + gridHtml() + '</div>');
   }
 
@@ -666,7 +786,7 @@
       '<div class="detail"><div class="left"><a class="back" href="#/">' + IC.back + 'All recipes</a>' +
       '<div class="hero" aria-hidden="true" style="background:' + ph(r.id) + '">' + esc(r.title.charAt(0).toUpperCase()) + imgTag(r) + '</div>' + photoBar(r) +
       '<div><h1 class="hero-t">' + esc(r.title) + '</h1><p class="meta" style="margin-top:8px;font-size:14px">' + esc(metaText(r)) + '</p>' + sourceLine(r) + creditLine(r) + '</div>' +
-      (chips ? '<div class="tags">' + chips + '</div>' : '') +
+      pickRow('r', r.id) +
       '<div class="actions"><a class="btn primary big" href="#/cook/' + esc(r.id) + '">' + IC.play + 'Cook</a>' +
       '<button class="btn outline big" data-act="addplan" data-id="' + esc(r.id) + '">Add to plan</button></div>' +
       '<div class="actions"><a class="btn" href="#/edit/' + esc(r.id) + '">Edit recipe</a>' +
@@ -858,7 +978,8 @@
   }
 
   function editView(r) {
-    return shell('library', '<div class="top"><a class="back" href="#/recipe/' + esc(r.id) + '">' + IC.back + 'Back to recipe</a><h1>Edit recipe</h1></div>' + draftHtml('edit'));
+    return shell('library', '<div class="top stick"><a class="back" href="#/recipe/' + esc(r.id) + '">' + IC.back + 'Back to recipe</a><h1>Edit recipe</h1><span class="sp"></span>' +
+      '<a class="btn" href="#/recipe/' + esc(r.id) + '" data-act="i-cancel">Cancel</a><button class="btn primary" data-act="i-save">Save recipe</button></div>' + draftHtml('edit'));
   }
 
   function shotPickHtml(d) {
@@ -912,10 +1033,7 @@
       '<div class="flex2"><div class="field"><label for="d-title">Title</label><input id="d-title" class="inp" data-field="title" value="' + esc(d.title) + '"></div>' +
       '<div class="field s"><label for="d-sv">Servings</label><input id="d-sv" class="inp" inputmode="numeric" data-field="servings" value="' + esc(d.servings) + '"></div>' +
       '<div class="field s"><label for="d-cook">Total min</label><input id="d-cook" class="inp" inputmode="numeric" data-field="cook" value="' + esc(d.cook) + '"></div></div>' +
-      '<div class="lab">Type (pick any that fit)</div><div class="chipwrap">' + catChips + '</div>' +
-      '<div class="flex2"><div class="field"><label for="d-cui">Cuisine</label><input id="d-cui" class="inp" list="cuisines" data-field="cuisine" value="' + esc(d.cuisine) + '" placeholder="Start typing, or enter your own">' +
-      '<datalist id="cuisines">' + db.config.cuisines.map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist></div>' +
-      '<div class="field"><label for="d-tags">Other tags (separate with commas)</label><input id="d-tags" class="inp" data-field="tags" value="' + esc(d.tags) + '"></div></div>' +
+      '<div class="lab">Type, cuisine and tags</div>' + pickRow('d', '') +
       ingHead + rows + ingAdd +
       (missing ? '<div class="warnnote">Some amounts were not found in your text. Please fill them in, or leave them blank.</div>' : '') +
       '<div class="lab">Steps (one per line. Start a line with # for a heading.)</div><textarea class="stepsbox" aria-label="Steps" data-field="steps">' + esc(d.steps) + '</textarea>' +
@@ -1088,7 +1206,7 @@
   function render() {
     var nr = route();
     if (nr.name !== 'cook') { resetTimer(); wakeOff(); }
-    if (nr.name !== cur.name || nr.id !== cur.id) { ui.confirmDel = null; ui.confirmCfg = null; ui.modal = null; }
+    if (nr.name !== cur.name || nr.id !== cur.id) { ui.confirmDel = null; ui.confirmCfg = null; ui.modal = null; ui.pick = null; }
     if (nr.name === 'cook' && (cur.name !== 'cook' || cur.id !== nr.id)) { ui.step = 0; ui.tpick = {}; resetTimer(); }
     if (nr.name !== 'edit' && ui.editId) { ui.draft = null; ui.editId = null; }
     if (nr.name === 'edit') {
@@ -1576,6 +1694,11 @@
       }
       return;
     }
+    if (t.getAttribute && t.getAttribute('data-sort')) {
+      ui.sort = t.value;
+      try { localStorage.setItem(SORT_KEY, t.value); } catch (e) { /* ignore */ }
+      rerender(); return;
+    }
     var fk = t.getAttribute && t.getAttribute('data-filter');
     if (fk) { ui[fk] = t.value; rerender(); return; }
     var lk = t.getAttribute && t.getAttribute('data-lim');
@@ -1739,6 +1862,13 @@
     if (act === 't-add') { timerAdd(); return; }
     if (act === 't-reset') { resetTimer(); paintTimer(); return; }
     if (act === 't-pick') { ui.tpick[ui.step] = +el.getAttribute('data-v'); resetTimer(); rerender(); return; }
+    if (act === 'pk-open') {
+      var pt = el.getAttribute('data-t'), pi = el.getAttribute('data-id') || '', pk = el.getAttribute('data-k');
+      ui.pick = (ui.pick && ui.pick.t === pt && ui.pick.id === pi && ui.pick.k === pk) ? null : { t: pt, id: pi, k: pk };
+      rerender(); return;
+    }
+    if (act === 'pk-close') { ui.pick = null; rerender(); return; }
+    if (act === 'pk-cat' || act === 'pk-tag' || act === 'pk-cui' || act === 'pk-new') { pkAct(act, el); return; }
     if (act === 'shot-add') { var sfi = document.getElementById('sfile'); if (sfi) { sfi.click(); } return; }
     if (act === 'shot-read') { shotRead(); return; }
     if (act === 'shot-del') { var dn0 = +el.getAttribute('data-n'); var rm = shotUi.list.splice(dn0, 1)[0]; if (rm) { try { URL.revokeObjectURL(rm.url); } catch (e) { /* ignore */ } } rerender(); return; }
@@ -1833,7 +1963,18 @@
     }
   });
 
+  document.addEventListener('click', function (ev) {
+    if (!ui.pick) { return; }
+    var tg = ev.target;
+    if (tg && tg.closest && tg.closest('.pickwrap')) { return; }
+    ui.pick = null;
+    Array.prototype.forEach.call(document.querySelectorAll('.pkpanel'), function (n) { if (n.parentNode) { n.parentNode.removeChild(n); } });
+    Array.prototype.forEach.call(document.querySelectorAll('.pkbtn.open'), function (n) { n.classList.remove('open'); n.setAttribute('aria-expanded', 'false'); });
+  });
+
   document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' && ev.target && ev.target.id === 'pk-new') { ev.preventDefault(); var pb = document.querySelector('[data-act="pk-new"]'); if (pb) { pb.click(); } return; }
+    if (ev.key === 'Escape' && ui.pick) { ui.pick = null; rerender(); return; }
     if (ev.key === 'Enter' && ev.target && ev.target.id === 'pfq') { ev.preventDefault(); photoSearch(photoUi.find && photoUi.find.rid); }
   });
 
