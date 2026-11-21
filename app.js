@@ -758,11 +758,91 @@
       }).join('') + '</div>');
   }
 
+  /* ---------- import from screenshots ---------- */
+
+  var SHOT_MAX = 8;
+  var shotUi = { list: [], msg: '', busy: false };
+
+  function shotsPanel() {
+    var h = '<div class="panel"><h2>Screenshots</h2><p class="note">Add the screenshots of one recipe, in order, like from TikTok or Snapchat. The app reads the text in them and shows the result on the next screen for you to check. Nothing is saved until you save. ' +
+      'The images are sent to Google’s Gemini service to be read. On its free tier, Google may use them to improve its products, so crop out or skip anything personal.</p>';
+    if (shotUi.list.length) {
+      h += '<div class="slist">' + shotUi.list.map(function (s, n) {
+        return '<div class="sitem"><img src="' + esc(s.url) + '" alt="Screenshot ' + (n + 1) + '"><div class="sbtns"><span class="sn">' + (n + 1) + '</span>' +
+          '<button class="rowx" data-act="shot-up" data-n="' + n + '" aria-label="Move earlier"' + (n === 0 ? ' disabled' : '') + '>↑</button>' +
+          '<button class="rowx" data-act="shot-down" data-n="' + n + '" aria-label="Move later"' + (n === shotUi.list.length - 1 ? ' disabled' : '') + '>↓</button>' +
+          '<button class="rowx" data-act="shot-del" data-n="' + n + '" aria-label="Remove">×</button></div></div>';
+      }).join('') + '</div>';
+    }
+    if (shotUi.msg) { h += '<p class="note warn">' + esc(shotUi.msg) + '</p>'; }
+    h += '<input type="file" accept="image/*" multiple id="sfile" hidden data-shots="1">' +
+      '<div class="actions"><button class="btn" data-act="shot-add"' + (shotUi.busy || shotUi.list.length >= SHOT_MAX ? ' disabled' : '') + '>' + (shotUi.list.length ? 'Add more' : 'Choose screenshots') + '</button>' +
+      '<button class="btn primary big" data-act="shot-read"' + (shotUi.busy || !shotUi.list.length ? ' disabled' : '') + '>' + (shotUi.busy ? 'Working...' : 'Read these screenshots') + '</button></div>' +
+      '<p class="meta" style="font-size:12px">Up to ' + SHOT_MAX + ' images. Order matters: first screenshot first.</p></div>';
+    return h;
+  }
+
+  function shotClear() {
+    shotUi.list.forEach(function (s) { try { URL.revokeObjectURL(s.url); } catch (e) { /* ignore */ } });
+    shotUi.list = [];
+  }
+
+  function shotAdd(files) {
+    var room = SHOT_MAX - shotUi.list.length;
+    var arr = Array.prototype.slice.call(files || [], 0, Math.max(0, room));
+    if (!arr.length) { return; }
+    shotUi.msg = (files.length > room) ? 'Only ' + SHOT_MAX + ' screenshots fit. The rest were left out.' : '';
+    shotUi.busy = true; rerender();
+    Promise.all(arr.map(function (f) {
+      if (!/^image\//i.test(f.type || '')) { return Promise.resolve(null); }
+      return photoResizer(f, 1800, 0.8).then(function (b) { return { blob: b, url: URL.createObjectURL(b) }; }, function () { return null; });
+    })).then(function (res) {
+      shotUi.busy = false;
+      var bad = 0;
+      res.forEach(function (x) { if (x) { shotUi.list.push(x); } else { bad++; } });
+      if (bad) { shotUi.msg = bad + ' file(s) could not be read as images. Try JPEG or PNG.'; }
+      rerender();
+    });
+  }
+
+  function blobB64(b) {
+    return new Promise(function (ok, no) {
+      var fr = new FileReader();
+      fr.onload = function () { var t = String(fr.result || ''); ok(t.slice(t.indexOf(',') + 1)); };
+      fr.onerror = function () { no(new Error('read')); };
+      fr.readAsDataURL(b);
+    });
+  }
+
+  function shotRead() {
+    if (shotUi.busy || !shotUi.list.length) { return; }
+    if (!sb || !cloud.user) { shotUi.msg = 'Sign in under Settings to import from screenshots.'; rerender(); return; }
+    shotUi.busy = true; shotUi.msg = ''; rerender();
+    Promise.all(shotUi.list.map(function (s) { return blobB64(s.blob).then(function (d) { return { d: d, m: 'image/jpeg' }; }); })).then(function (arr) {
+      return sb.functions.invoke(NUTRI_FN, { body: { shots: arr } });
+    }).then(function (res) {
+      shotUi.busy = false;
+      if (res.error || !res.data || !res.data.recipe) {
+        return fnError(res.error).then(function (m) { shotUi.msg = m; rerender(); });
+      }
+      var rec = res.data.recipe;
+      ui.reorder = false; ui.focusRow = null;
+      var d = linkDraft(rec, 'screenshots', (ui.draft && ui.draft.cat) || []);
+      d.src = ''; d.img = ''; d.shots = true; d.pick = null; d.unclear = rec.unclear || [];
+      d.original = 'Read from ' + shotUi.list.length + ' screenshot(s)\n\n' + (rec.title || '') + '\n\nIngredients\n' + (rec.ingredients || []).join('\n') + '\n\nInstructions\n' + (rec.steps || []).join('\n');
+      ui.draft = d;
+      rerender();
+    }, function () { shotUi.busy = false; shotUi.msg = 'Could not prepare the images. Try again.'; rerender(); });
+  }
+
   function importView() {
     var tabs = '<div class="tabs"><button class="' + (ui.importTab === 'text' ? 'on' : '') + '" data-act="itab" data-v="text">Paste text</button>' +
-      '<button class="' + (ui.importTab === 'link' ? 'on' : '') + '" data-act="itab" data-v="link">Web link</button></div>';
+      '<button class="' + (ui.importTab === 'link' ? 'on' : '') + '" data-act="itab" data-v="link">Web link</button>' +
+      '<button class="' + (ui.importTab === 'shots' ? 'on' : '') + '" data-act="itab" data-v="shots">Screenshots</button></div>';
     var body;
-    if (ui.importTab === 'link') {
+    if (ui.importTab === 'shots') {
+      body = ui.draft ? draftHtml('import') : shotsPanel();
+    } else if (ui.importTab === 'link') {
       body = ui.draft ? draftHtml('import') : '<div class="panel"><h2>Web link</h2><p class="note">Paste the address of a recipe page. The app reads the recipe data the page includes, then shows it on the next screen for you to check. Nothing is saved until you save. Some sites block this or have no recipe data. Then copy the page text and use Paste text.</p>' +
         '<label for="linkurl" class="lab">Recipe link</label><input id="linkurl" class="inp" type="url" inputmode="url" placeholder="https://" value="' + esc(ui.linkUrl) + '" data-field="linkUrl">' +
         (ui.linkMsg ? '<p class="note warn">' + esc(ui.linkMsg) + '</p>' : '') +
@@ -781,6 +861,14 @@
     return shell('library', '<div class="top"><a class="back" href="#/recipe/' + esc(r.id) + '">' + IC.back + 'Back to recipe</a><h1>Edit recipe</h1></div>' + draftHtml('edit'));
   }
 
+  function shotPickHtml(d) {
+    if (!shotUi.list.length) { return ''; }
+    return '<div class="lab" style="margin-top:12px">Photo for this recipe (optional)</div><p class="note" style="margin-top:0">Tap one to use it. Tap again to clear. Screenshots may include app buttons or text.</p><div class="pgrid">' +
+      shotUi.list.map(function (s, n) {
+        return '<button class="pthumb' + (d.pick === n ? ' on' : '') + '" data-act="shot-pick" data-n="' + n + '" aria-label="Use screenshot ' + (n + 1) + ' as the photo" aria-pressed="' + (d.pick === n) + '"><img src="' + esc(s.url) + '" alt=""></button>';
+      }).join('') + '</div>';
+  }
+
   function draftHtml(mode) {
     var d = ui.draft;
     var missing = d.ingr.some(function (i) { return i.missing; });
@@ -788,9 +876,11 @@
     if (mode === 'edit' && !d.original) {
       left = '<section class="panel"><h2>Tips</h2><p class="note">Use the headings to split ingredients and steps into groups, like "For the sauce". Start a step line with # to make it a heading. Times in a step, like "bake 25 minutes", become timers in cooking mode.</p></section>';
     } else {
-      left = '<section class="panel"><h2>' + (d.src ? 'What was read from the link' : 'What you pasted') + '</h2><p class="note">Kept with the recipe.</p>' +
+      left = '<section class="panel"><h2>' + (d.shots ? 'What was read from the screenshots' : (d.src ? 'What was read from the link' : 'What you pasted')) + '</h2><p class="note">Kept with the recipe.</p>' +
+        (d.shots && d.unclear && d.unclear.length ? '<p class="note warn">Could not read clearly: ' + esc(d.unclear.join('; ')) + '. Check the amounts and steps against your screenshots.</p>' : '') +
         '<div class="orig">' + esc(d.original) + '</div>' +
-        (mode === 'import' ? '<button class="btn" data-act="i-back">Back to the text</button>' : '') + '</section>';
+        (d.shots ? shotPickHtml(d) : '') +
+        (mode === 'import' ? '<button class="btn" data-act="i-back">' + (d.shots ? 'Back to the screenshots' : 'Back to the text') + '</button>' : '') + '</section>';
     }
     var catList = db.config.cats.slice();
     d.cat.forEach(function (c) { if (catList.indexOf(c) < 0) { catList.push(c); } });
@@ -1118,11 +1208,14 @@
       id = fields.id;
     }
     save();
+    var pickBlob = (!ui.editId && d.shots && d.pick != null && shotUi.list[d.pick]) ? shotUi.list[d.pick].blob : null;
+    if (d.shots && !ui.editId) { shotClear(); }
     ui.draft = null;
     ui.editId = null;
     ui.importText = '';
     ui.servings[id] = null;
     location.hash = '#/recipe/' + id;
+    if (pickBlob) { setPhoto(id, pickBlob); }
     return true;
   }
 
@@ -1467,6 +1560,12 @@
       try { t.value = ''; } catch (e) { /* ignore */ }
       return;
     }
+    if (t.getAttribute && t.getAttribute('data-shots')) {
+      var sf = t.files ? Array.prototype.slice.call(t.files) : [];
+      try { t.value = ''; } catch (e) { /* ignore */ }
+      if (sf.length) { shotAdd(sf); }
+      return;
+    }
     if (t.getAttribute && t.getAttribute('data-bulk')) {
       var bf = t.files && t.files[0];
       if (bf) {
@@ -1640,6 +1739,15 @@
     if (act === 't-add') { timerAdd(); return; }
     if (act === 't-reset') { resetTimer(); paintTimer(); return; }
     if (act === 't-pick') { ui.tpick[ui.step] = +el.getAttribute('data-v'); resetTimer(); rerender(); return; }
+    if (act === 'shot-add') { var sfi = document.getElementById('sfile'); if (sfi) { sfi.click(); } return; }
+    if (act === 'shot-read') { shotRead(); return; }
+    if (act === 'shot-del') { var dn0 = +el.getAttribute('data-n'); var rm = shotUi.list.splice(dn0, 1)[0]; if (rm) { try { URL.revokeObjectURL(rm.url); } catch (e) { /* ignore */ } } rerender(); return; }
+    if (act === 'shot-up' || act === 'shot-down') {
+      var si = +el.getAttribute('data-n'); var sj = act === 'shot-up' ? si - 1 : si + 1;
+      if (sj >= 0 && sj < shotUi.list.length) { var st = shotUi.list[si]; shotUi.list[si] = shotUi.list[sj]; shotUi.list[sj] = st; }
+      rerender(); return;
+    }
+    if (act === 'shot-pick' && ui.draft) { var pn = +el.getAttribute('data-n'); ui.draft.pick = ui.draft.pick === pn ? null : pn; rerender(); return; }
     if (act === 'itab') { ui.importTab = el.getAttribute('data-v'); if (!ui.editId) { ui.draft = null; } rerender(); return; }
     if (act === 'i-read') {
       var ta = document.getElementById('paste');
@@ -2128,14 +2236,14 @@
     return c ? c.url : '';
   }
 
-  function resizeToJpeg(file) {
+  function resizeToJpeg(file, maxSide, quality) {
     return new Promise(function (resolve, reject) {
       var url = URL.createObjectURL(file);
       var im = new Image();
       im.onload = function () {
         var w = im.naturalWidth;
         var h = im.naturalHeight;
-        var k = Math.min(1, 1200 / Math.max(w, h));
+        var k = Math.min(1, (maxSide || 1200) / Math.max(w, h));
         var cw = Math.max(1, Math.round(w * k));
         var ch = Math.max(1, Math.round(h * k));
         var cv = document.createElement('canvas');
@@ -2144,7 +2252,7 @@
         cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cw, ch);
         cx.drawImage(im, 0, 0, cw, ch);
         URL.revokeObjectURL(url);
-        cv.toBlob(function (b) { if (b) { resolve(b); } else { reject(new Error('encode')); } }, 'image/jpeg', 0.82);
+        cv.toBlob(function (b) { if (b) { resolve(b); } else { reject(new Error('encode')); } }, 'image/jpeg', quality || 0.82);
       };
       im.onerror = function () { URL.revokeObjectURL(url); reject(new Error('read')); };
       im.src = url;

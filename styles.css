@@ -327,3 +327,11 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
 .pthumb img{width:100%;height:100%;object-fit:cover;display:block}
 .blist{margin:0;padding-left:18px;font-size:14px;line-height:1.5}
 .blist li{margin:4px 0}
+
+.pthumb.on{border-color:var(--accent,#5b7c99);box-shadow:0 0 0 2px var(--accent,#5b7c99)}
+.slist{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.sitem{display:flex;gap:10px;align-items:center;border:1px solid #E3DED2;border-radius:10px;padding:6px;background:#fff}
+.sitem img{width:64px;height:96px;object-fit:cover;border-radius:6px;flex:none}
+.sbtns{display:flex;gap:6px;align-items:center}
+.sbtns .sn{font-weight:700;min-width:20px}
+.sbtns .rowx:disabled{opacity:.35}
