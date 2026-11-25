@@ -163,7 +163,7 @@ textarea.stepsbox{width:100%;min-height:150px;border:1px solid var(--line2);bord
 
 @media (max-width:860px){
   .shell{flex-direction:column-reverse}
-  .nav{width:100%;height:auto;position:sticky;bottom:0;top:auto;flex-direction:row;justify-content:space-around;padding:6px 8px;border-right:0;border-top:1px solid var(--line)}
+  .nav{z-index:8;width:100%;height:auto;position:sticky;bottom:0;top:auto;flex-direction:row;justify-content:space-around;padding:6px 8px;border-right:0;border-top:1px solid var(--line)}
   .nav .grow{display:none}
   .navitem{flex:1;padding:6px 2px}
   .navitem svg{width:22px;height:22px}
