@@ -405,3 +405,46 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
   .fchips .chip{height:44px;padding:0 16px;border-color:#7A8F99;color:var(--ink)}
   .fchips .chip.on{background:#E3F1DD;border-color:#4E7D3A;color:#2D5A1E;font-weight:700}
 }
+
+/* ===== Phone Recipe page + Cooking mode (Look C, CSS only) ===== */
+@media (max-width:860px){
+  .detail{gap:16px}
+  .detail .left{width:100%;gap:14px}
+  .detail .right{min-width:0;width:100%;gap:16px}
+  .detail .back{align-self:stretch;background:#2F5560;color:#fff;margin:-18px -16px 0;padding:0 16px;min-height:56px;font-size:16px;font-weight:700}
+  .detail .back svg{width:22px;height:22px}
+  .detail .hero{margin:-14px -16px 0;border-radius:0;height:200px}
+  .detail .hero-t{font-size:22px;line-height:1.25}
+  .detail .actions{gap:10px}
+  .detail .actions .btn.big{min-height:56px;font-size:16px}
+  .detail .actions .btn.primary{background:#82C46C;border-color:#82C46C;color:#14301A;font-weight:700}
+  .detail .actions .btn.outline{border-color:#7A8F99;color:var(--ink)}
+  .detail .panel{padding:8px 16px 12px;border-radius:16px}
+  .detail .panel h2{font-size:18px}
+  .detail .stepper button{width:48px;height:48px}
+  .ings li{padding:12px 0;font-size:15px;border-bottom:1px solid var(--line)}
+  .ings .q{min-width:104px;flex:none;font-weight:700}
+  .steps{gap:16px;font-size:16px;line-height:1.5}
+  .steps .n{width:32px;height:32px;border-radius:16px}
+
+  .cook-h{background:#2F5560;border-bottom:0;padding:10px 12px 14px;gap:8px 10px}
+  .cook-h .btn{background:#3F6A76;border-color:transparent;color:#fff;min-height:48px;font-weight:700}
+  .cook-h .info{min-width:0}
+  .cook-h .info b{color:#fff;font-size:17px;line-height:1.25}
+  .cook-h .info span{color:#BCD3DA}
+  .cook-h .meta{color:#BCD3DA}
+  .cook-h .stepper button{width:48px;height:48px;background:#3F6A76;border-color:transparent;color:#fff}
+  .cook-h .stepper b{color:#fff}
+  .bars{width:100%;gap:5px}
+  .bars i{flex:1;width:auto;height:12px;border-radius:6px;background:#4F7A88}
+  .cook-b{padding:16px;gap:16px}
+  .cook-main{min-width:0;gap:16px;justify-content:flex-start}
+  .bigstep{background:#fff;border-radius:20px;padding:20px}
+  .timer{align-self:stretch;gap:10px;padding:14px 16px}
+  .timer .t{font-size:40px}
+  .timer .btn.big{min-height:52px;font-size:16px}
+  .cook-side{padding:14px 16px}
+  .cook-f{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 16px 14px;gap:10px}
+  .cook-f .btn{height:60px;font-size:18px;border-radius:14px}
+  .cook-f .btn.primary{background:#82C46C;border-color:#82C46C;color:#14301A;font-weight:700}
+}
