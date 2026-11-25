@@ -448,3 +448,10 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
   .cook-f .btn{height:60px;font-size:18px;border-radius:14px}
   .cook-f .btn.primary{background:#82C46C;border-color:#82C46C;color:#14301A;font-weight:700}
 }
+
+/* ===== Phone: photo buttons in a 2x2 grid, nav clears the gesture bar ===== */
+@media (max-width:860px){
+  .photobar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .photobar .btn{min-height:44px;padding:0 8px;font-size:14px;justify-content:center}
+  .nav{padding-bottom:calc(6px + env(safe-area-inset-bottom))}
+}
