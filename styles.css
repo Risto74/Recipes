@@ -429,8 +429,11 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
 
   .cook-h{background:#2F5560;border-bottom:0;padding:10px 12px 14px;gap:8px 10px}
   .cook-h .btn{background:#3F6A76;border-color:transparent;color:#fff;min-height:48px;font-weight:700}
-  .cook-h .info{min-width:0}
-  .cook-h .info b{color:#fff;font-size:17px;line-height:1.25}
+  .cook-h .btn{order:1}
+  .cook-h .stepper{order:2;margin-left:auto}
+  .cook-h .info{order:3;flex:1 1 100%;min-width:0}
+  .bars{order:4}
+  .cook-h .info b{color:#fff;font-size:17px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .cook-h .info span{color:#BCD3DA}
   .cook-h .meta{color:#BCD3DA}
   .cook-h .stepper button{width:48px;height:48px;background:#3F6A76;border-color:transparent;color:#fff}
@@ -444,7 +447,7 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
   .timer .t{font-size:40px}
   .timer .btn.big{min-height:52px;font-size:16px}
   .cook-side{padding:14px 16px}
-  .cook-f{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 16px 14px;gap:10px}
+  .cook-f{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 16px 30px;gap:10px}
   .cook-f .btn{height:60px;font-size:18px;border-radius:14px}
   .cook-f .btn.primary{background:#82C46C;border-color:#82C46C;color:#14301A;font-weight:700}
 }
@@ -453,5 +456,6 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
 @media (max-width:860px){
   .photobar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .photobar .btn{min-height:44px;padding:0 8px;font-size:14px;justify-content:center}
-  .nav{padding-bottom:calc(6px + env(safe-area-inset-bottom))}
+  .nav{padding-bottom:20px}
+  .detail .photobar{order:1}
 }
