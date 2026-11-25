@@ -547,6 +547,12 @@
 
   var SORT_KEY = 'recipeapp.sort';
   var SORTS = [['new', 'Newest added'], ['old', 'Oldest added'], ['az', 'Title A to Z'], ['za', 'Title Z to A']];
+  var LIBV_KEY = 'recipeapp.libview';
+  ui.fsheet = false;
+  ui.libView = (function () {
+    try { var v = localStorage.getItem(LIBV_KEY); if (v === 'list' || v === 'grid') { return v; } } catch (e) { /* ignore */ }
+    return 'list';
+  })();
   ui.pick = null;
   ui.sort = (function () {
     try { var v = localStorage.getItem(SORT_KEY); if (SORTS.some(function (x) { return x[0] === v; })) { return v; } } catch (e) { /* ignore */ }
@@ -713,15 +719,20 @@
     if (tags.vals.indexOf(ui.fTag) < 0) { ui.fTag = 'All'; }
     var active = ui.fCat !== 'All' || ui.fCuisine !== 'All' || ui.fTag !== 'All';
     var hasSample = db.recipes.some(function (r) { return r.sample; });
+    var nAct = (ui.fCat !== 'All' ? 1 : 0) + (ui.fCuisine !== 'All' ? 1 : 0) + (ui.fTag !== 'All' ? 1 : 0);
+    var sv = function (p) { return '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>'; };
+    var vb = function (k, label, p) { return '<button type="button" class="vb' + (ui.libView === k ? ' on' : '') + '" data-act="lib-view" data-id="' + k + '" aria-label="' + label + '" aria-pressed="' + (ui.libView === k) + '">' + sv(p) + '</button>'; };
+    var bar = '<div class="libbar phone-only"><button type="button" class="btn fbtn" data-act="fsheet">' + sv('<path d="M4 6h16M7 12h10M10 18h4"/>') + 'Filters' + (nAct ? '<span class="fcount">' + nAct + '</span>' : '') + '</button><span class="sp"></span><div class="vtog">' +
+      vb('list', 'List view', '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>') + vb('grid', 'Grid view', '<rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>') + '</div></div>';
     return shell('library',
-      '<div class="top"><h1>Recipes</h1><span class="sp"></span>' +
+      '<div class="top libtop"><h1>Recipes</h1><span class="sp"></span>' +
       '<label for="q" style="position:absolute;left:-9999px">Search recipes</label>' +
       '<input id="q" class="search" type="search" placeholder="Search recipes or ingredients" value="' + esc(ui.q) + '">' +
-      '<a class="btn primary" href="#/import">' + IC.plus + 'Add recipe</a></div>' +
+      '<a class="btn primary" href="#/import">' + IC.plus + 'Add recipe</a></div>' + bar +
       (hasSample ? '<div class="notice">Some recipes here are samples so you can try the app. <button class="btn" data-act="rm-samples">Remove samples</button></div>' : '') +
-      '<div class="filters">' + selBox('Type', 'fCat', cats, ui.fCat) + selBox('Cuisine', 'fCuisine', cuis, ui.fCuisine) + selBox('Tag', 'fTag', tags, ui.fTag) +
+      '<div class="fback' + (ui.fsheet ? ' open' : '') + '" data-act="fsheet-close"></div><div class="filters' + (ui.fsheet ? ' open' : '') + '"><div class="fhead"><b>Filters</b><button type="button" class="btn primary" data-act="fsheet-close">Done</button></div>' + selBox('Type', 'fCat', cats, ui.fCat) + selBox('Cuisine', 'fCuisine', cuis, ui.fCuisine) + selBox('Tag', 'fTag', tags, ui.fTag) +
       (active ? '<button class="btn" data-act="clear-filters">Clear</button>' : '') + '<span class="sp"></span><label class="fsel"><span>Sort</span><select data-sort="1" aria-label="Sort recipes">' + SORTS.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === ui.sort ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label><a class="btn" href="#/settings">' + IC.gear + 'Edit lists</a></div>' +
-      '<div class="grid" id="grid">' + gridHtml() + '</div>');
+      '<div class="grid v-' + ui.libView + '" id="grid">' + gridHtml() + '</div>');
   }
 
   /* ----- lists page (types, cuisines, tags) ----- */
@@ -1750,6 +1761,9 @@
       if (el.className.indexOf('modal') >= 0 && t !== el) { return; }
       ui.modal = null; rerender(); return;
     }
+    if (act === 'lib-view') { ui.libView = id === 'grid' ? 'grid' : 'list'; try { localStorage.setItem(LIBV_KEY, ui.libView); } catch (e) { /* ignore */ } rerender(); return; }
+    if (act === 'fsheet') { ui.fsheet = true; rerender(); return; }
+    if (act === 'fsheet-close') { ui.fsheet = false; rerender(); return; }
     if (act === 'clear-filters') { ui.fCat = 'All'; ui.fCuisine = 'All'; ui.fTag = 'All'; rerender(); return; }
     if (act === 'av-add') {
       var ai = document.getElementById('avadd');
@@ -2759,7 +2773,7 @@
   // The Family Hub app calls this when the Home button is pressed.
   window.hubHome = function () { location.href = HUB_URL; };
 
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', function () { ui.fsheet = false; render(); });
   window.addEventListener('pageshow', function () { if (cur.name === 'cook') { wakeOn(); } });
   document.addEventListener('visibilitychange', function () { if (!document.hidden && cur.name === 'cook') { wakeOff(); wakeOn(); } });
 
