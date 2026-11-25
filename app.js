@@ -710,6 +710,19 @@
       }).join('') + '</select></label>';
   }
 
+  function chipSet(label, key, info, current) {
+    if (!info.vals.length) { return ''; }
+    var one = function (v, text, on) { return '<button type="button" class="chip' + (on ? ' on' : '') + '" aria-pressed="' + on + '" data-act="fchip" data-k="' + key + '" data-v="' + esc(v) + '">' + esc(text) + '</button>'; };
+    return '<div class="fgroup"><div class="flabel">' + label + '</div><div class="fchips">' + one('All', 'All', current === 'All') +
+      info.vals.map(function (v) { return one(v, v + ' (' + info.counts[v] + ')', v === current); }).join('') + '</div></div>';
+  }
+
+  function sortChips() {
+    return '<div class="fgroup"><div class="flabel">Sort</div><div class="fchips">' + SORTS.map(function (x) {
+      return '<button type="button" class="chip' + (x[0] === ui.sort ? ' on' : '') + '" aria-pressed="' + (x[0] === ui.sort) + '" data-act="fchip" data-k="sort" data-v="' + x[0] + '">' + x[1] + '</button>';
+    }).join('') + '</div></div>';
+  }
+
   function libraryView() {
     var cats = usedList(db.config.cats, function (r) { return r.cat || []; }, false);
     var cuis = usedList(db.config.cuisines, function (r) { return r.cuisine ? [r.cuisine] : []; }, false);
@@ -730,7 +743,7 @@
       '<input id="q" class="search" type="search" placeholder="Search recipes or ingredients" value="' + esc(ui.q) + '">' +
       '<a class="btn primary" href="#/import">' + IC.plus + 'Add recipe</a></div>' + bar +
       (hasSample ? '<div class="notice">Some recipes here are samples so you can try the app. <button class="btn" data-act="rm-samples">Remove samples</button></div>' : '') +
-      '<div class="fback' + (ui.fsheet ? ' open' : '') + '" data-act="fsheet-close"></div><div class="filters' + (ui.fsheet ? ' open' : '') + '"><div class="fhead"><b>Filters</b><button type="button" class="btn primary" data-act="fsheet-close">Done</button></div>' + selBox('Type', 'fCat', cats, ui.fCat) + selBox('Cuisine', 'fCuisine', cuis, ui.fCuisine) + selBox('Tag', 'fTag', tags, ui.fTag) +
+      '<div class="fback' + (ui.fsheet ? ' open' : '') + '" data-act="fsheet-close"></div><div class="filters' + (ui.fsheet ? ' open' : '') + '"><div class="fhead"><b>Filters</b><button type="button" class="btn primary" data-act="fsheet-close">Done</button></div><div class="chipsets">' + chipSet('Type', 'fCat', cats, ui.fCat) + chipSet('Cuisine', 'fCuisine', cuis, ui.fCuisine) + chipSet('Tag', 'fTag', tags, ui.fTag) + sortChips() + '</div>' + selBox('Type', 'fCat', cats, ui.fCat) + selBox('Cuisine', 'fCuisine', cuis, ui.fCuisine) + selBox('Tag', 'fTag', tags, ui.fTag) +
       (active ? '<button class="btn" data-act="clear-filters">Clear</button>' : '') + '<span class="sp"></span><label class="fsel"><span>Sort</span><select data-sort="1" aria-label="Sort recipes">' + SORTS.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === ui.sort ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label><a class="btn" href="#/settings">' + IC.gear + 'Edit lists</a></div>' +
       '<div class="grid v-' + ui.libView + '" id="grid">' + gridHtml() + '</div>');
   }
@@ -1762,6 +1775,13 @@
       ui.modal = null; rerender(); return;
     }
     if (act === 'lib-view') { ui.libView = id === 'grid' ? 'grid' : 'list'; try { localStorage.setItem(LIBV_KEY, ui.libView); } catch (e) { /* ignore */ } rerender(); return; }
+    if (act === 'fchip') {
+      var fk2 = el.getAttribute('data-k');
+      var fv = el.getAttribute('data-v');
+      if (fk2 === 'sort') { ui.sort = fv; try { localStorage.setItem(SORT_KEY, fv); } catch (e) { /* ignore */ } }
+      else if (fk2 === 'fCat' || fk2 === 'fCuisine' || fk2 === 'fTag') { ui[fk2] = fv; }
+      rerender(); return;
+    }
     if (act === 'fsheet') { ui.fsheet = true; rerender(); return; }
     if (act === 'fsheet-close') { ui.fsheet = false; rerender(); return; }
     if (act === 'clear-filters') { ui.fCat = 'All'; ui.fCuisine = 'All'; ui.fTag = 'All'; rerender(); return; }

@@ -391,3 +391,17 @@ ul.flags{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap
   .v-grid .card .body{padding:10px 12px 12px;gap:3px}
   .v-list .card .t,.v-grid .card .t{font-size:15px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 }
+
+/* ===== Phone Library: slim notice + chip filters ===== */
+.chipsets{display:none}
+@media (max-width:860px){
+  .notice{flex-wrap:nowrap;padding:8px 8px 8px 12px;gap:10px;font-size:13px;line-height:1.3}
+  .notice .btn{flex:none;white-space:nowrap;height:40px;min-height:40px;padding:0 12px;font-size:13px}
+  .filters.open .chipsets{display:flex;flex-direction:column;gap:16px}
+  .filters.open .fsel{display:none}
+  .fgroup{display:flex;flex-direction:column;gap:8px}
+  .flabel{font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
+  .fchips{display:flex;flex-wrap:wrap;gap:8px}
+  .fchips .chip{height:44px;padding:0 16px;border-color:#7A8F99;color:var(--ink)}
+  .fchips .chip.on{background:#E3F1DD;border-color:#4E7D3A;color:#2D5A1E;font-weight:700}
+}
